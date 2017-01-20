@@ -62,6 +62,7 @@ azure vm secret add -g $ADE_RG_NAME -n $ADE_VM_NAME -r $ADE_KV_ID -c $ADE_KV_CER
 # Linux target (no -t option required)
 azure vm secret add -g $ADE_RG_NAME -n $ADE_VM_NAME -r $ADE_KV_ID -c $ADE_KV_CERT_SID -s $ADE_SUBSCRIPTION_ID 
 ```
+*(note: targeting Windows may require [using the most recent dev branch](https://blogs.msdn.microsoft.com/ejarvi/2017/01/19/how-to-try-the-xplat-cli-before-official-installers-release/) of the CLI to work properly)*
 
 **Second**, now that the certificate resides on the VM, disk encryption can be started in a way that only requires passing the thumbprint of that certificate (no secrets involved). 
 
