@@ -248,7 +248,7 @@ echo "ADE_KV_ID $ADE_KV_ID"
 # create self-signed certificate if needed, note that some server side delay is required before the certificate will available 
 if ! azure keyvault certificate show --vault-name $ADE_KV_NAME --certificate-name $ADE_ADAPP_CERT_NAME > "$ADE_LOG_DIR/$ADE_KV_NAME$ADE_ADAPP_CERT_NAME$ADE_LOG_SUFFIX" 2>&1; then 
 	azure keyvault certificate policy create --issuer-name Self --subject-name $ADE_ADAPP_CPS_NAME --file $ADE_LOG_DIR/policy.json --validity-in-months 12 >> "$ADE_LOG_DIR/$ADE_KV_NAME$ADE_ADAPP_CERT_NAME$ADE_LOG_SUFFIX" 2>&1
-	azure keyvault certificate create --vault-name $ADE_KV_NAME --certificate-name $ADE_ADAPP_CERT_NAME --certificate-policy-file policy.json >> "$ADE_LOG_DIR/$ADE_KV_NAME$ADE_ADAPP_CERT_NAME$ADE_LOG_SUFFIX" 2>&1
+	azure keyvault certificate create --vault-name $ADE_KV_NAME --certificate-name $ADE_ADAPP_CERT_NAME --certificate-policy-file $ADE_LOG_DIR/policy.json >> "$ADE_LOG_DIR/$ADE_KV_NAME$ADE_ADAPP_CERT_NAME$ADE_LOG_SUFFIX" 2>&1
 fi 
 
 # wait for self signed certificate to be created  
