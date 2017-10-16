@@ -56,12 +56,17 @@ ADE_NSG="${ADE_PREFIX}nsg"
 ADE_NIC="${ADE_PREFIX}nic"
 ADE_VM="${ADE_PREFIX}vm"
 ADE_ADAPP_SECRET="$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 32 | head -n 1)"
-ADE_ADAPP_CPS_NAME="CN=www.contoso.com"
-ADE_ADAPP_CERT_NAME="${ADE_PREFIX}cert"
 ADE_ADAPP_NAME="${ADE_PREFIX}adapp"
 ADE_ADAPP_URI="https://localhost/${ADE_ADAPP_NAME}"
 ADE_KV_NAME="${ADE_PREFIX}kv"
 ADE_KEK_NAME="${ADE_PREFIX}kek"
+
+print_delete_instructions()
+{
+    echo "To delete all test resources:
+    az group delete -n ${ADE_RG} --no-wait
+    az ad app delete --id ${ADE_ADSP_APPID}"
+}
 
 # create resource group which will contain all test resources (except for ad application and service principal)
 az group create --name ${ADE_RG} --location ${ADE_LOCATION}
@@ -74,18 +79,29 @@ ADE_ADSP_APPID="`az ad app list --display-name ${ADE_ADAPP_NAME} | jq -r '.[0] |
 az ad sp create --id "${ADE_ADSP_APPID}"
 ADE_ADSP_OID="`az ad sp list --display-name ${ADE_ADAPP_NAME} | jq -r '.[0] | .objectId'`"
 
-# create role assignment for ad app
-az role assignment create --assignee $ADE_ADSP_OID --role Reader --scope "/subscriptions/${ADE_SUBSCRIPTION_ID}/"
+# create role assignment for ad app (retry until AD SP OID is visible in directory or time threshold is exceeded)
+SLEEP_CYCLES=0
+MAX_SLEEP=8
+until az role assignment create --assignee $ADE_ADSP_OID --role Reader --scope "/subscriptions/${ADE_SUBSCRIPTION_ID}/" || [ $SLEEP_CYCLES -eq $MAX_SLEEP ]; do
+   sleep 15
+   (( SLEEP_CYCLES++ ))
+done
+if [ $SLEEP_CYCLES -eq $MAX_SLEEP ]
+then
+    echo "test script failure - default timeout threshold exceeded for az role assignment"
+    print_delete_instructions
+    exit 1
+fi
 
-# create keyvault and set policy
-az keyvault create --name ${ADE_KV_NAME} --resource-group ${ADE_RG} --location ${ADE_LOCATION}
+# create keyvault and set policy (premium sku offers HSM support which will be used later)
+az keyvault create --name ${ADE_KV_NAME} --resource-group ${ADE_RG} --location ${ADE_LOCATION} --sku premium 
 ADE_KV_URI="`az keyvault show --name ${ADE_KV_NAME} --resource-group ${ADE_RG} | jq -r '.properties.vaultUri'`"
 ADE_KV_ID="`az keyvault show --name ${ADE_KV_NAME} --resource-group ${ADE_RG} | jq -r '.id'`"
 az keyvault set-policy --name "${ADE_KV_NAME}" --resource-group "${ADE_RG}" --spn "${ADE_ADSP_APPID}" --key-permissions "wrapKey" --secret-permissions "set"
 az keyvault update --name "${ADE_KV_NAME}" --resource-group "${ADE_RG}" --enabled-for-deployment true --enabled-for-disk-encryption true
 
 # create key encryption key
-az keyvault key create --vault-name ${ADE_KV_NAME} --name ${ADE_KEK_NAME} --protection Software 
+az keyvault key create --vault-name ${ADE_KV_NAME} --name ${ADE_KEK_NAME} --protection HSM 
 ADE_KEK_ID="${ADE_KV_ID}"
 ADE_KEK_URI="`az keyvault key show --name ${ADE_KEK_NAME} --vault-name ${ADE_KV_NAME} | jq -r '.key.kid'`"
 
@@ -97,12 +113,13 @@ az network nic create --resource-group ${ADE_RG} --name ${ADE_NIC} --vnet-name $
 
 # create virtual machine 
 az vm create --resource-group ${ADE_RG} --name ${ADE_VM} --nics ${ADE_NIC} --image ${ADE_IMAGE} --generate-ssh-keys
-az vm open-port --port 22 --resource-group ${ADE_RG} --name ${ADE_VM}
+#az vm open-port --port 22 --resource-group ${ADE_RG} --name ${ADE_VM}
 
 # encrypt virtual machine 
-az encryption enable --name "${ADE_VM}" --resource-group "${ADE_RG}" --aad-client-id "${ADE_ADSP_APPID}" --aad-client-secret "${ADE_ADAPP_SECRET}" --disk-encryption-keyvault "${ADE_KV_ID}" --key-encryption-key "${ADE_KEK_URI}" --key-encryption-keyvault "${ADE_KEK_ID}" --volume-type ALL
+az vm encryption enable --name "${ADE_VM}" --resource-group "${ADE_RG}" --aad-client-id "${ADE_ADSP_APPID}" --aad-client-secret "${ADE_ADAPP_SECRET}" --disk-encryption-keyvault "${ADE_KV_ID}" --key-encryption-key "${ADE_KEK_URI}" --key-encryption-keyvault "${ADE_KEK_ID}" --volume-type ALL
 
 # check status once every 5 minutes for 6 hours
+SECONDS=0
 SLEEP_CYCLES=0
 MAX_SLEEP=72
 until az vm encryption show --name "${ADE_VM}" --resource-group "${ADE_RG}" | grep -m 1 "VMRestartPending" || [ $SLEEP_CYCLES -eq $MAX_SLEEP ]; do
@@ -112,6 +129,7 @@ until az vm encryption show --name "${ADE_VM}" --resource-group "${ADE_RG}" | gr
    sleep 5m
    (( SLEEP_CYCLES++ ))
 done
+echo "Time to encrypt:  ${SECONDS} seconds"
 
 print_delete_instructions()
 {
@@ -131,6 +149,7 @@ fi
 az vm restart --name "${ADE_VM}" --resource-group "${ADE_RG}"
 
 # check status once every 30 seconds for 10 minutes  (after restart, the extension needs time to start up and mount the newly encrypted disk)
+SECONDS=0
 SLEEP_CYCLES=0
 MAX_SLEEP=20
 until az vm encryption show --name "${ADE_VM}" --resource-group "${ADE_RG}" | grep -m 1 "succeeded" || [ $SLEEP_CYCLES -eq $MAX_SLEEP ]; do
@@ -147,6 +166,7 @@ then
     print_delete_instructions
     exit 1
 fi
+echo "Time to restart after encrypt:  ${SECONDS} seconds"
 
 echo "To delete all test resources:
     az group delete -n ${ADE_RG} --no-wait
