@@ -25,9 +25,9 @@ then
     [image] may take the form of an alias, URN, resource ID, or URI. 
 
         Example Alias:
-            CentOS, CoreOS, Debian, openSUSE, RHEL, SLES, UbuntuLTS, etc..
-        Example URN: 
-            MicrosoftWindowsServer:WindowsServer:2012-R2-Datacenter:latest
+            RHEL, UbuntuLTS, CentOS, etc...
+        Example URN:   (az vm image list --output table)
+            Canonical:UbuntuServer:16.04-LTS:latest
         Example Custom Image Resource ID or Name: 
             /subscriptions/subscription-id/resourceGroups/MyResourceGroup/providers/Microsoft.Compute/images/MyImage
         Example URI: 
@@ -74,6 +74,9 @@ az group create --name ${ADE_RG} --location ${ADE_LOCATION}
 # create ad application 
 az ad app create --display-name $ADE_ADAPP_NAME --homepage $ADE_ADAPP_URI --identifier-uris $ADE_ADAPP_URI --password $ADE_ADAPP_SECRET
 ADE_ADSP_APPID="`az ad app list --display-name ${ADE_ADAPP_NAME} | jq -r '.[0] | .appId'`"
+
+# print delete instructions to stdout (if script fails early they are still available)
+print_delete_instructions
 
 # create service principal for ad application 
 az ad sp create --id "${ADE_ADSP_APPID}"
