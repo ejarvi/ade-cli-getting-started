@@ -149,7 +149,6 @@ fi
 az vm restart --name "${ADE_VM}" --resource-group "${ADE_RG}"
 
 # check status once every 30 seconds for 10 minutes  (after restart, the extension needs time to start up and mount the newly encrypted disk)
-SECONDS=0
 SLEEP_CYCLES=0
 MAX_SLEEP=20
 until az vm encryption show --name "${ADE_VM}" --resource-group "${ADE_RG}" | grep -m 1 "succeeded" || [ $SLEEP_CYCLES -eq $MAX_SLEEP ]; do
@@ -166,8 +165,7 @@ then
     print_delete_instructions
     exit 1
 fi
-echo "Time to restart after encrypt:  ${SECONDS} seconds"
 
-echo "To delete all test resources:
-    az group delete -n ${ADE_RG} --no-wait
-    az ad app delete --id ${ADE_ADSP_APPID}"
+printf 'Time to encrypt: %dh:%dm:%ds\n' $(($SECONDS/3600)) $(($SECONDS%3600/60)) $(($SECONDS%60))
+
+print_delete_instructions
