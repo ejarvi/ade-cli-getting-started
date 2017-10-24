@@ -38,6 +38,18 @@ then
             westus, centralus, eastus, etc..
         To get a list of regions use:  
             az account list-locations
+
+    To bypass creation of a new Active Directory application and KeyVault object
+    for each run, it is possible to pre-create the following objects and specify
+    their identifiers in the corresponding environment variables:
+    
+        ADE_ADAPP_NAME
+        ADE_ADAPP_SECRET
+        ADE_ADSP_APPID
+        ADE_KV_ID
+        ADE_KV_URI
+        ADE_KEK_ID
+        ADE_KEK_URI 
     "
     exit 1
 fi
@@ -55,11 +67,6 @@ ADE_PUBIP="${ADE_PREFIX}pubip"
 ADE_NSG="${ADE_PREFIX}nsg"
 ADE_NIC="${ADE_PREFIX}nic"
 ADE_VM="${ADE_PREFIX}vm"
-ADE_ADAPP_SECRET="$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 32 | head -n 1)"
-ADE_ADAPP_NAME="${ADE_PREFIX}adapp"
-ADE_ADAPP_URI="https://localhost/${ADE_ADAPP_NAME}"
-ADE_KV_NAME="${ADE_PREFIX}kv"
-ADE_KEK_NAME="${ADE_PREFIX}kek"
 
 print_delete_instructions()
 {
@@ -71,42 +78,61 @@ print_delete_instructions()
 # create resource group which will contain all test resources (except for ad application and service principal)
 az group create --name ${ADE_RG} --location ${ADE_LOCATION}
 
-# create ad application 
-az ad app create --display-name $ADE_ADAPP_NAME --homepage $ADE_ADAPP_URI --identifier-uris $ADE_ADAPP_URI --password $ADE_ADAPP_SECRET
-ADE_ADSP_APPID="`az ad app list --display-name ${ADE_ADAPP_NAME} | jq -r '.[0] | .appId'`"
+# create ad application and keyvault resources if not provided in environment
+if [ -z "${ADE_ADAPP_NAME}" ] && \
+    [ -z "${ADE_ADAPP_SECRET}" ] && \
+    [ -z "${ADE_ADSP_APPID}" ] && \
+    [ -z "${ADE_KV_ID}" ] && \
+    [ -z "${ADE_KV_URI}" ] && \
+    [ -z "${ADE_KEK_ID}"] && \
+    [ -z "${ADE_KEK_URI}"]; then
+    
+    ADE_ADAPP_NAME="${ADE_PREFIX}adapp"
+    ADE_ADAPP_SECRET="$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 32 | head -n 1)"
+    ADE_ADAPP_NAME="${ADE_PREFIX}adapp"
+    ADE_ADAPP_URI="https://localhost/${ADE_ADAPP_NAME}"
+    ADE_KV_NAME="${ADE_PREFIX}kv"
+    ADE_KEK_NAME="${ADE_PREFIX}kek"
 
-# print delete instructions to stdout (if script fails early they are still available)
-print_delete_instructions
+    az ad app create --display-name $ADE_ADAPP_NAME --homepage $ADE_ADAPP_URI --identifier-uris $ADE_ADAPP_URI --password $ADE_ADAPP_SECRET
+    ADE_ADSP_APPID="`az ad app list --display-name ${ADE_ADAPP_NAME} | jq -r '.[0] | .appId'`"
 
-# create service principal for ad application 
-az ad sp create --id "${ADE_ADSP_APPID}"
-ADE_ADSP_OID="`az ad sp list --display-name ${ADE_ADAPP_NAME} | jq -r '.[0] | .objectId'`"
-
-# create role assignment for ad app (retry until AD SP OID is visible in directory or time threshold is exceeded)
-SLEEP_CYCLES=0
-MAX_SLEEP=8
-until az role assignment create --assignee $ADE_ADSP_OID --role Reader --scope "/subscriptions/${ADE_SUBSCRIPTION_ID}/" || [ $SLEEP_CYCLES -eq $MAX_SLEEP ]; do
-   sleep 15
-   (( SLEEP_CYCLES++ ))
-done
-if [ $SLEEP_CYCLES -eq $MAX_SLEEP ]
-then
-    echo "test script failure - default timeout threshold exceeded for az role assignment"
+    # print delete instructions to stdout (if script fails early they are still available)
     print_delete_instructions
-    exit 1
+
+    # create service principal for ad application 
+    az ad sp create --id "${ADE_ADSP_APPID}"
+    ADE_ADSP_OID="`az ad sp list --display-name ${ADE_ADAPP_NAME} | jq -r '.[0] | .objectId'`"
+
+    # create role assignment for ad app (retry until AD SP OID is visible in directory or time threshold is exceeded)
+    SLEEP_CYCLES=0
+    MAX_SLEEP=8
+    until az role assignment create --assignee $ADE_ADSP_OID --role Reader --scope "/subscriptions/${ADE_SUBSCRIPTION_ID}/" || [ $SLEEP_CYCLES -eq $MAX_SLEEP ]; do
+    sleep 15
+    (( SLEEP_CYCLES++ ))
+    done
+    if [ $SLEEP_CYCLES -eq $MAX_SLEEP ]
+    then
+        echo "test script failure - default timeout threshold exceeded for az role assignment"
+        print_delete_instructions
+        exit 1
+    fi
+
+    # create keyvault and set policy (premium sku offers HSM support which will be used later)
+    az keyvault create --name ${ADE_KV_NAME} --resource-group ${ADE_RG} --location ${ADE_LOCATION} --sku premium 
+    ADE_KV_URI="`az keyvault show --name ${ADE_KV_NAME} --resource-group ${ADE_RG} | jq -r '.properties.vaultUri'`"
+    ADE_KV_ID="`az keyvault show --name ${ADE_KV_NAME} --resource-group ${ADE_RG} | jq -r '.id'`"
+    az keyvault set-policy --name "${ADE_KV_NAME}" --resource-group "${ADE_RG}" --spn "${ADE_ADSP_APPID}" --key-permissions "wrapKey" --secret-permissions "set"
+    az keyvault update --name "${ADE_KV_NAME}" --resource-group "${ADE_RG}" --enabled-for-deployment true --enabled-for-disk-encryption true
+
+    # create key encryption key
+    az keyvault key create --vault-name ${ADE_KV_NAME} --name ${ADE_KEK_NAME} --protection HSM 
+    ADE_KEK_ID="${ADE_KV_ID}"
+    ADE_KEK_URI="`az keyvault key show --name ${ADE_KEK_NAME} --vault-name ${ADE_KV_NAME} | jq -r '.key.kid'`"
+else
+    echo "Using pre-created ADAPP and KV objects"
+    print_delete_instructions
 fi
-
-# create keyvault and set policy (premium sku offers HSM support which will be used later)
-az keyvault create --name ${ADE_KV_NAME} --resource-group ${ADE_RG} --location ${ADE_LOCATION} --sku premium 
-ADE_KV_URI="`az keyvault show --name ${ADE_KV_NAME} --resource-group ${ADE_RG} | jq -r '.properties.vaultUri'`"
-ADE_KV_ID="`az keyvault show --name ${ADE_KV_NAME} --resource-group ${ADE_RG} | jq -r '.id'`"
-az keyvault set-policy --name "${ADE_KV_NAME}" --resource-group "${ADE_RG}" --spn "${ADE_ADSP_APPID}" --key-permissions "wrapKey" --secret-permissions "set"
-az keyvault update --name "${ADE_KV_NAME}" --resource-group "${ADE_RG}" --enabled-for-deployment true --enabled-for-disk-encryption true
-
-# create key encryption key
-az keyvault key create --vault-name ${ADE_KV_NAME} --name ${ADE_KEK_NAME} --protection HSM 
-ADE_KEK_ID="${ADE_KV_ID}"
-ADE_KEK_URI="`az keyvault key show --name ${ADE_KEK_NAME} --vault-name ${ADE_KV_NAME} | jq -r '.key.kid'`"
 
 # create network resources
 az network vnet create --resource-group ${ADE_RG} --name ${ADE_VNET} --subnet-name ${ADE_SUBNET}
