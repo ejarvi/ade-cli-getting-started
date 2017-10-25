@@ -83,7 +83,7 @@ auto_delete_resources()
 {
     # delete resources created by the script 
     if [ "${ADE_RG_CREATED}" = true ]; then
-        az group delete -n "${ADE_RG}" --no-wait
+        az group delete -n "${ADE_RG}" --no-wait --yes
     fi
     if [ "${ADE_ADAPP_CREATED}" = true ]; then
         az ad app delete --id "${ADE_ADSP_APPID}"
