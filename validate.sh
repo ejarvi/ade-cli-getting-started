@@ -70,13 +70,29 @@ ADE_VM="${ADE_PREFIX}vm"
 
 print_delete_instructions()
 {
-    echo "To delete all test resources:
-    az group delete -n ${ADE_RG} --no-wait
-    az ad app delete --id ${ADE_ADSP_APPID}"
+    echo "In case of test failure, resources can be deleted as follows:"
+    if [ "${ADE_RG_CREATED}" = true ]; then
+        echo "az group delete -n ${ADE_RG} --no-wait"
+    fi
+    if [ "${ADE_ADAPP_CREATED}" = true ]; then
+        echo "az ad app delete --id ${ADE_ADSP_APPID}"
+    fi
+}
+
+auto_delete_resources()
+{
+    # delete resources created by the script 
+    if [ "${ADE_RG_CREATED}" = true ]; then
+        az group delete -n "${ADE_RG}" --no-wait
+    fi
+    if [ "${ADE_ADAPP_CREATED}" = true ]; then
+        az ad app delete --id "${ADE_ADSP_APPID}"
+    fi
 }
 
 # create resource group which will contain all test resources (except for ad application and service principal)
 az group create --name ${ADE_RG} --location ${ADE_LOCATION}
+ADE_RG_CREATED=true
 
 # create ad application and keyvault resources if not provided in environment
 if [ -z "${ADE_ADAPP_NAME}" ] && \
@@ -96,6 +112,7 @@ if [ -z "${ADE_ADAPP_NAME}" ] && \
 
     az ad app create --display-name $ADE_ADAPP_NAME --homepage $ADE_ADAPP_URI --identifier-uris $ADE_ADAPP_URI --password $ADE_ADAPP_SECRET
     ADE_ADSP_APPID="`az ad app list --display-name ${ADE_ADAPP_NAME} | jq -r '.[0] | .appId'`"
+    ADE_ADAPP_CREATED=true
 
     # print delete instructions to stdout (if script fails early they are still available)
     print_delete_instructions
@@ -158,18 +175,11 @@ until az vm encryption show --name "${ADE_VM}" --resource-group "${ADE_RG}" | gr
    sleep 5m
    (( SLEEP_CYCLES++ ))
 done
-echo "Time to encrypt:  ${SECONDS} seconds"
-
-print_delete_instructions()
-{
-    echo "To delete all test resources:
-    az group delete -n ${ADE_RG} --no-wait
-    az ad app delete --id ${ADE_ADSP_APPID}"
-}
+printf 'Pre-reboot encryption time: %dh:%dm:%ds\n' $(($SECONDS/3600)) $(($SECONDS%3600/60)) $(($SECONDS%60))
 
 if [ $SLEEP_CYCLES -eq $MAX_SLEEP ]
 then
-    echo "default timeout threshold expired - OS disk encryption took more than 6 hours"
+    echo "Test timeout threshold expired - OS disk encryption took more than 6 hours"
     print_delete_instructions
     exit 1
 fi
@@ -190,11 +200,12 @@ done
 
 if [ $SLEEP_CYCLES -eq $MAX_SLEEP ]
 then
-    echo "timeout threshold expired - OS disk encryption success message not observed after restart"
+    echo "Test timeout threshold expired - OS disk encryption success message not observed after restart"
     print_delete_instructions
     exit 1
 fi
 
-printf 'Time to encrypt: %dh:%dm:%ds\n' $(($SECONDS/3600)) $(($SECONDS%3600/60)) $(($SECONDS%60))
+printf 'Total encryption time: %dh:%dm:%ds\n' $(($SECONDS/3600)) $(($SECONDS%3600/60)) $(($SECONDS%60))
 
-print_delete_instructions
+#cleanup
+auto_delete_resources
