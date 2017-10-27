@@ -164,15 +164,15 @@ az vm create --resource-group ${ADE_RG} --name ${ADE_VM} --nics ${ADE_NIC} --ima
 # encrypt virtual machine 
 az vm encryption enable --name "${ADE_VM}" --resource-group "${ADE_RG}" --aad-client-id "${ADE_ADSP_APPID}" --aad-client-secret "${ADE_ADAPP_SECRET}" --disk-encryption-keyvault "${ADE_KV_ID}" --key-encryption-key "${ADE_KEK_URI}" --key-encryption-keyvault "${ADE_KEK_ID}" --volume-type ALL
 
-# check status once every 5 minutes for 6 hours
+# check status once every 10 minutes for a max of 20 hours
 SECONDS=0
 SLEEP_CYCLES=0
-MAX_SLEEP=72
+MAX_SLEEP=120
 until az vm encryption show --name "${ADE_VM}" --resource-group "${ADE_RG}" | grep -m 1 "VMRestartPending" || [ $SLEEP_CYCLES -eq $MAX_SLEEP ]; do
    date
    # display current progress while waiting for the VMRestartPending message
    az vm encryption show --name "${ADE_VM}" --resource-group "${ADE_RG}" | grep -m 1 "progressMessage"
-   sleep 5m
+   sleep 10m
    (( SLEEP_CYCLES++ ))
 done
 printf 'Pre-reboot encryption time: %dh:%dm:%ds\n' $(($SECONDS/3600)) $(($SECONDS%3600/60)) $(($SECONDS%60))
