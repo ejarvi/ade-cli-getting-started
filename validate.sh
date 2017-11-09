@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -x
 
 # make sure azure cli is logged in 
@@ -18,8 +18,7 @@ if ! [ -x "$(command -v jq)" ]; then
   exit 1
 fi
 
-if [[ ( -z "$1") || ( -z "$2") ]]
-then
+if [[ ( -z "$1") || ( -z "$2") ]]; then 
     echo "usage: validate.sh [image] [location] [optional:volumetype]
 
     [image] may take the form of an alias, URN, resource ID, or URI. 
@@ -57,8 +56,7 @@ then
     exit 1
 fi
 
-if [[ ( -z "$3") ]]
-then
+if [[ ( -z "$3") ]]; then
     ADE_VOLUME_TYPE=OS
 else
     ADE_VOLUME_TYPE=$3
@@ -169,11 +167,12 @@ az network nic create --resource-group ${ADE_RG} --name ${ADE_NIC} --vnet-name $
 
 # create virtual machine with at least 7GB RAM and two 1GB data disks
 # https://docs.microsoft.com/en-us/azure/virtual-machines/windows/sizes-general 
-az vm create --resource-group ${ADE_RG} --name ${ADE_VM} --size Standard_DS2_v2 --nics ${ADE_NIC} --image ${ADE_IMAGE} --generate-ssh-keys --data-disk-sizes-gb 1 1  
+az vm create --resource-group ${ADE_RG} --name ${ADE_VM} --size Standard_DS2_v2 --nics ${ADE_NIC} --image ${ADE_IMAGE} --generate-ssh-keys --data-disk-sizes-gb 1 1
 #az vm open-port --port 22 --resource-group ${ADE_RG} --name ${ADE_VM}
 
-# mount and format data disks via custom script extension 
-# create storage account within resource group for use by custom script extension
+# mount and format the data disks if volume type was ALL or DATA
+if [ ADE_VOLUME_TYPE != "OS" ]; then
+# creates a storage account within resource group for use by custom script extension
 ADE_STG="${ADE_PREFIX}stg"
 ADE_CNT=container
 az storage account create --name "${ADE_STG}" --resource-group "${ADE_RG}" --sku Standard_LRS
@@ -246,6 +245,7 @@ done
 az storage blob download --account-name "${ADE_STG}" --account-key "${ADE_STG_KEY}" --container-name "${ADE_CNT}" --name output --file "/tmp/${ADE_SCRIPT_PREFIX}.log"
 cat "/tmp/${ADE_SCRIPT_PREFIX}.log"
 rm "/tmp/${ADE_SCRIPT_PREFIX}.log"
+fi
 
 # enable encryption
 az vm encryption enable --name "${ADE_VM}" --resource-group "${ADE_RG}" --aad-client-id "${ADE_ADSP_APPID}" --aad-client-secret "${ADE_ADAPP_SECRET}" --disk-encryption-keyvault "${ADE_KV_ID}" --key-encryption-key "${ADE_KEK_URI}" --key-encryption-keyvault "${ADE_KEK_ID}" --volume-type "${ADE_VOLUME_TYPE}"
