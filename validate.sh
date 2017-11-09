@@ -157,11 +157,86 @@ az network public-ip create --resource-group ${ADE_RG} --name ${ADE_PUBIP}
 az network nsg create --resource-group ${ADE_RG} --name ${ADE_NSG}
 az network nic create --resource-group ${ADE_RG} --name ${ADE_NIC} --vnet-name ${ADE_VNET} --subnet ${ADE_SUBNET} --network-security-group ${ADE_NSG} --public-ip-address ${ADE_PUBIP}
 
-# create virtual machine 
-az vm create --resource-group ${ADE_RG} --name ${ADE_VM} --nics ${ADE_NIC} --image ${ADE_IMAGE} --generate-ssh-keys
+# create virtual machine with two 10gb data disks
+az vm create --resource-group ${ADE_RG} --name ${ADE_VM} --nics ${ADE_NIC} --image ${ADE_IMAGE} --generate-ssh-keys --data-disk-sizes-gb 10 10
 #az vm open-port --port 22 --resource-group ${ADE_RG} --name ${ADE_VM}
 
-# encrypt virtual machine 
+# mount and format data disks via custom script extension 
+# create storage account within resource group for use by custom script extension
+ADE_STG="${ADE_PREFIX}stg"
+ADE_CNT=container
+az storage account create --name "${ADE_STG}" --resource-group "${ADE_RG}" --sku Standard_LRS
+ADE_STG_KEY="`az storage account keys list --account-name ${ADE_STG} --resource-group ${ADE_RG} | jq -r '.[0] | .value'`"
+az storage container create --name "${ADE_CNT}" --account-name "${ADE_STG}" --account-key "${ADE_STG_KEY}"
+
+# generate a randomly named disk setup script, upload it, and generate SAS URL to give to custom script extension
+ADE_SCRIPT_PREFIX="`cat /dev/urandom | tr -dc 'a-z' | fold -w 12 | head -n 1`"
+ADE_SCRIPT_NAME="${ADE_SCRIPT_PREFIX}.sh"
+ADE_SCRIPT_PATH="/tmp/${ADE_SCRIPT_NAME}"
+cat > "${ADE_SCRIPT_PATH}" << 'EOF'
+#!/usr/bin/env bash
+set -x
+if ! [ -x "$(command -v curl)" ]; then
+  echo 'Error: curl not installed, script cannot run' >&2
+  exit 1
+fi
+if [ -z "$1" ]; then
+  echo 'SAS URL missing, script cannot run' >&2
+  exit 1
+fi 
+echo "y" | mkfs.ext4 /dev/disk/azure/scsi1/lun0
+echo "y" | mkfs.ext4 /dev/disk/azure/scsi1/lun1
+UUID0="$(blkid -s UUID -o value /dev/disk/azure/scsi1/lun0)"
+UUID1="$(blkid -s UUID -o value /dev/disk/azure/scsi1/lun1)"
+mkdir /data0
+mkdir /data1
+echo "UUID=$UUID0 /data0 ext4 defaults,nofail 0 0" >>/etc/fstab
+echo "UUID=$UUID1 /data1 ext4 defaults,nofail 0 0" >>/etc/fstab
+mount -a
+lsblk > /tmp/lsblk.txt
+curl -X PUT $1 -T /tmp/lsblk.txt -H "x-ms-blob-type: BlockBlob"
+EOF
+az storage blob upload --account-name "${ADE_STG}" --account-key "${ADE_STG_KEY}" --container-name "${ADE_CNT}" --file "${ADE_SCRIPT_PATH}" --name "${ADE_SCRIPT_NAME}"
+# cleanup local copy of script 
+rm "${ADE_SCRIPT_PATH}"
+ADE_SAS_EXPIRY="`date -d tomorrow --iso-8601 --utc`T23:59Z"
+ADE_SCRIPT_URL=`az storage blob url --account-name "${ADE_STG}" --account-key "${ADE_STG_KEY}" --container-name "${ADE_CNT}" --name "${ADE_SCRIPT_NAME}"`
+ADE_SCRIPT_SAS_TOKEN=`az storage blob generate-sas --account-name "${ADE_STG}" --account-key "${ADE_STG_KEY}" --container-name "${ADE_CNT}" --name "${ADE_SCRIPT_NAME}" --permissions r --expiry ${ADE_SAS_EXPIRY}`
+ADE_SCRIPT_SAS_URL="${ADE_SCRIPT_URL//\"}?${ADE_SCRIPT_SAS_TOKEN//\"}"
+
+# create temporary storage blob SAS URL that will be used by the remote machine to post result output
+ADE_BLOB_URL=`az storage blob url --account-name "${ADE_STG}" --account-key "${ADE_STG_KEY}" --container-name "${ADE_CNT}" --name output`
+ADE_BLOB_SAS_TOKEN=`az storage blob generate-sas --account-name "${ADE_STG}" --account-key "${ADE_STG_KEY}" --container-name "${ADE_CNT}" --name output --permissions wracd --expiry ${ADE_SAS_EXPIRY}`
+ADE_BLOB_SAS_URL="${ADE_BLOB_URL//\"}?${ADE_BLOB_SAS_TOKEN//\"}"
+
+# create temporary json config files with the newly created SAS urls to send to custom script extension 
+ADE_PUB_CONFIG="/tmp/${ADE_SCRIPT_PREFIX}_public_config.json"
+ADE_PRO_CONFIG="/tmp/${ADE_SCRIPT_PREFIX}_protected_config.json"
+echo '{"fileUris": ["'${ADE_SCRIPT_SAS_URL}'"]}' > "${ADE_PUB_CONFIG}"
+echo '{"commandToExecute": "./'${ADE_SCRIPT_NAME}' '"'"${ADE_BLOB_SAS_URL}"'"'"}' > "${ADE_PRO_CONFIG}" 
+
+# use custom script extension to run disk setup script 
+az vm extension set --resource-group "${ADE_RG}" --vm-name "${ADE_VM}" --name customScript --publisher Microsoft.Azure.Extensions --settings "${ADE_PUB_CONFIG}" --protected-settings "${ADE_PRO_CONFIG}"
+
+# cleanup temp json files
+rm "${ADE_PUB_CONFIG}"
+rm "${ADE_PRO_CONFIG}" 
+
+# check once a minute for 10 minutes or until the remote vm creates the output blob to signal that disks are formatted and mounted 
+SLEEP_CYCLES=0
+MAX_SLEEP=10
+until az storage blob exists --account-name "${ADE_STG}" --account-key "${ADE_STG_KEY}" --container-name "${ADE_CNT}" --name output | grep -m 1 "true" || [ $SLEEP_CYCLES -eq $MAX_SLEEP ]; do
+   date
+   sleep 1m
+   (( SLEEP_CYCLES++ ))
+done
+
+# print the result provided by the remote vm to console, then cleanup the temporary file 
+az storage blob download --account-name "${ADE_STG}" --account-key "${ADE_STG_KEY}" --container-name "${ADE_CNT}" --name output --file "/tmp/${ADE_SCRIPT_PREFIX}.log"
+cat "/tmp/${ADE_SCRIPT_PREFIX}.log"
+rm "/tmp/${ADE_SCRIPT_PREFIX}.log"
+
+# enable encryption
 az vm encryption enable --name "${ADE_VM}" --resource-group "${ADE_RG}" --aad-client-id "${ADE_ADSP_APPID}" --aad-client-secret "${ADE_ADAPP_SECRET}" --disk-encryption-keyvault "${ADE_KV_ID}" --key-encryption-key "${ADE_KEK_URI}" --key-encryption-keyvault "${ADE_KEK_ID}" --volume-type ALL
 
 # check status once every 10 minutes for a max of 20 hours
