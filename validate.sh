@@ -20,7 +20,7 @@ fi
 
 if [[ ( -z "$1") || ( -z "$2") ]]
 then
-    echo "usage: validate.sh [image] [location]
+    echo "usage: validate.sh [image] [location] [optional:volumetype]
 
     [image] may take the form of an alias, URN, resource ID, or URI. 
 
@@ -39,6 +39,9 @@ then
         To get a list of regions use:  
             az account list-locations
 
+    [volumetype] is the volume type to encrypt (ie., DATA/OS/ALL)
+        This value is optional, and will default to OS if not specified.
+    
     To bypass creation of a new Active Directory application and KeyVault object
     for each run, it is possible to pre-create the following objects and specify
     their identifiers in the corresponding environment variables:
@@ -52,6 +55,13 @@ then
         ADE_KEK_URI 
     "
     exit 1
+fi
+
+if [[ ( -z "$3") ]]
+then
+    ADE_VOLUME_TYPE=OS
+else
+    ADE_VOLUME_TYPE=$3
 fi
 
 ADE_IMAGE="$1"
@@ -157,8 +167,9 @@ az network public-ip create --resource-group ${ADE_RG} --name ${ADE_PUBIP}
 az network nsg create --resource-group ${ADE_RG} --name ${ADE_NSG}
 az network nic create --resource-group ${ADE_RG} --name ${ADE_NIC} --vnet-name ${ADE_VNET} --subnet ${ADE_SUBNET} --network-security-group ${ADE_NSG} --public-ip-address ${ADE_PUBIP}
 
-# create virtual machine with two 10gb data disks
-az vm create --resource-group ${ADE_RG} --name ${ADE_VM} --nics ${ADE_NIC} --image ${ADE_IMAGE} --generate-ssh-keys --data-disk-sizes-gb 10 10
+# create virtual machine with at least 7GB RAM and two 1GB data disks
+# https://docs.microsoft.com/en-us/azure/virtual-machines/windows/sizes-general 
+az vm create --resource-group ${ADE_RG} --name ${ADE_VM} --size Standard_DS2_v2 --nics ${ADE_NIC} --image ${ADE_IMAGE} --generate-ssh-keys --data-disk-sizes-gb 1 1  
 #az vm open-port --port 22 --resource-group ${ADE_RG} --name ${ADE_VM}
 
 # mount and format data disks via custom script extension 
@@ -237,7 +248,7 @@ cat "/tmp/${ADE_SCRIPT_PREFIX}.log"
 rm "/tmp/${ADE_SCRIPT_PREFIX}.log"
 
 # enable encryption
-az vm encryption enable --name "${ADE_VM}" --resource-group "${ADE_RG}" --aad-client-id "${ADE_ADSP_APPID}" --aad-client-secret "${ADE_ADAPP_SECRET}" --disk-encryption-keyvault "${ADE_KV_ID}" --key-encryption-key "${ADE_KEK_URI}" --key-encryption-keyvault "${ADE_KEK_ID}" --volume-type ALL
+az vm encryption enable --name "${ADE_VM}" --resource-group "${ADE_RG}" --aad-client-id "${ADE_ADSP_APPID}" --aad-client-secret "${ADE_ADAPP_SECRET}" --disk-encryption-keyvault "${ADE_KV_ID}" --key-encryption-key "${ADE_KEK_URI}" --key-encryption-keyvault "${ADE_KEK_ID}" --volume-type "${ADE_VOLUME_TYPE}"
 
 # check status once every 10 minutes for a max of 20 hours
 SECONDS=0
