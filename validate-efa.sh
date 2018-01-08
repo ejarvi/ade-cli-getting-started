@@ -294,4 +294,4 @@ fi
 printf 'Total encryption time: %dh:%dm:%ds\n' $(($SECONDS/3600)) $(($SECONDS%3600/60)) $(($SECONDS%60))
 
 #cleanup
-auto_delete_resources
+#auto_delete_resources
