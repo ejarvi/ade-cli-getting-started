@@ -254,44 +254,64 @@ az vm encryption enable --name "${ADE_VM}" --resource-group "${ADE_RG}" --aad-cl
 SECONDS=0
 SLEEP_CYCLES=0
 MAX_SLEEP=120
-until az vm encryption show --name "${ADE_VM}" --resource-group "${ADE_RG}" | grep -m 1 "VMRestartPending" || [ $SLEEP_CYCLES -eq $MAX_SLEEP ]; do
-   date
-   # display current progress while waiting for the VMRestartPending message
-   az vm encryption show --name "${ADE_VM}" --resource-group "${ADE_RG}" | grep -m 1 "progressMessage"
-   sleep 10m
-   (( SLEEP_CYCLES++ ))
-done
-printf 'Pre-reboot encryption time: %dh:%dm:%ds\n' $(($SECONDS/3600)) $(($SECONDS%3600/60)) $(($SECONDS%60))
 
-if [ $SLEEP_CYCLES -eq $MAX_SLEEP ]
-then
-    echo "Test timeout threshold expired - OS disk encryption took more than 6 hours"
-    print_delete_instructions
-    exit 1
-fi
+if [ "${ADE_VOLUME_TYPE,,}" = "data" ]; then
+	# DATA volume type
+	until az vm encryption show --name "${ADE_VM}" --resource-group "${ADE_RG}" | grep -m 1 "Encryption succeeded for data volumes" || [ $SLEEP_CYCLES -eq $MAX_SLEEP ]; do
+	   date
+	   # display current progress while waiting 
+	   az vm encryption show --name "${ADE_VM}" --resource-group "${ADE_RG}" | grep -m 1 "progressMessage"
+	   sleep 1m
+	   (( SLEEP_CYCLES++ ))
+	done
 
-# VMRestartPending message displayed, so restart the vm 
-az vm restart --name "${ADE_VM}" --resource-group "${ADE_RG}"
+	if [ $SLEEP_CYCLES -eq $MAX_SLEEP ]
+	then
+		echo "Test timeout threshold expired - data volume encryption took more than 2 hours"
+		print_delete_instructions
+		exit 1
+	fi
+else
+	# OS or ALL volume type 
+	until az vm encryption show --name "${ADE_VM}" --resource-group "${ADE_RG}" | grep -m 1 "VMRestartPending" || [ $SLEEP_CYCLES -eq $MAX_SLEEP ]; do
+	   date
+	   # display current progress while waiting for the VMRestartPending message
+	   az vm encryption show --name "${ADE_VM}" --resource-group "${ADE_RG}" | grep -m 1 "progressMessage"
+	   sleep 10m
+	   (( SLEEP_CYCLES++ ))
+	done
+	printf 'Pre-reboot encryption time: %dh:%dm:%ds\n' $(($SECONDS/3600)) $(($SECONDS%3600/60)) $(($SECONDS%60))
 
-# check status once every 30 seconds for 10 minutes  (after restart, the extension needs time to start up and mount the newly encrypted disk)
-SLEEP_CYCLES=0
-MAX_SLEEP=20
-until az vm encryption show --name "${ADE_VM}" --resource-group "${ADE_RG}" | grep -m 1 "succeeded" || [ $SLEEP_CYCLES -eq $MAX_SLEEP ]; do
-   date
-   # display current progress while waiting for the succeeded message
-   az vm encryption show --name "${ADE_VM}" --resource-group "${ADE_RG}" | grep -m 1 "osDisk"
-   sleep 30
-   (( SLEEP_CYCLES++ ))
-done
+	if [ $SLEEP_CYCLES -eq $MAX_SLEEP ]
+	then
+		echo "Test timeout threshold expired - OS disk encryption took more than 20 hours"
+		print_delete_instructions
+		exit 1
+	fi
 
-if [ $SLEEP_CYCLES -eq $MAX_SLEEP ]
-then
-    echo "Test timeout threshold expired - OS disk encryption success message not observed after restart"
-    print_delete_instructions
-    exit 1
+	# VMRestartPending message displayed, so restart the vm 
+	az vm restart --name "${ADE_VM}" --resource-group "${ADE_RG}"
+
+	# check status once every 30 seconds for 10 minutes  (after restart, the extension needs time to start up and mount the newly encrypted disk)
+	SLEEP_CYCLES=0
+	MAX_SLEEP=20
+	until az vm encryption show --name "${ADE_VM}" --resource-group "${ADE_RG}" | grep -m 1 "succeeded" || [ $SLEEP_CYCLES -eq $MAX_SLEEP ]; do
+	   date
+	   # display current progress while waiting for the succeeded message
+	   az vm encryption show --name "${ADE_VM}" --resource-group "${ADE_RG}" | grep -m 1 "osDisk"
+	   sleep 30
+	   (( SLEEP_CYCLES++ ))
+	done
+
+	if [ $SLEEP_CYCLES -eq $MAX_SLEEP ]
+	then
+		echo "Test timeout threshold expired - OS disk encryption success message not observed after restart"
+		print_delete_instructions
+		exit 1
+	fi
 fi
 
 printf 'Total encryption time: %dh:%dm:%ds\n' $(($SECONDS/3600)) $(($SECONDS%3600/60)) $(($SECONDS%60))
 
 #cleanup
-#auto_delete_resources
+auto_delete_resources
