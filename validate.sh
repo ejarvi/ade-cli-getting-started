@@ -293,7 +293,7 @@ else
     SLEEP_CYCLES=0
     MAX_SLEEP=12
     while az vm encryption show --name "${ADE_VM}" --resource-group "${ADE_RG}" | grep -m 1 "VMRestartPending" && [ $SLEEP_CYCLES -lt $MAX_SLEEP ]; do
-	    az vm restart --name "${ADE_VM}" --resource-group "${ADE_RG}" --debug
+	    az vm restart --name "${ADE_VM}" --resource-group "${ADE_RG}"
         sleep 5m
         (( SLEEP_CYCLES++ ))
     done
