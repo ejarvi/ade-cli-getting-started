@@ -272,7 +272,7 @@ if [ "${ADE_VOLUME_TYPE,,}" = "data" ]; then
 		exit 1
 	fi
 else
-	# OS or ALL volume type 
+	# wait for presence of "VMRestartPending" in status message to signal that OS disk encryption is complete
 	until az vm encryption show --name "${ADE_VM}" --resource-group "${ADE_RG}" | grep -m 1 "VMRestartPending" || [ $SLEEP_CYCLES -eq $MAX_SLEEP ]; do
 	   date
 	   # display current progress while waiting for the VMRestartPending message
@@ -289,17 +289,30 @@ else
 		exit 1
 	fi
 
-	# VMRestartPending message displayed, so restart the vm 
-	az vm restart --name "${ADE_VM}" --resource-group "${ADE_RG}"
+	# reboot vm 
+    SLEEP_CYCLES=0
+    MAX_SLEEP=12
+    while az vm encryption show --name "${ADE_VM}" --resource-group "${ADE_RG}" | grep -m 1 "VMRestartPending" && [ $SLEEP_CYCLES -lt $MAX_SLEEP ]; do
+	    az vm restart --name "${ADE_VM}" --resource-group "${ADE_RG}" --debug
+        sleep 5m
+        (( SLEEP_CYCLES++ ))
+    done
 
-	# check status once every 30 seconds for 10 minutes  (after restart, the extension needs time to start up and mount the newly encrypted disk)
+    if az vm encryption show --name "${ADE_VM}" --resource-group "${ADE_RG}" | grep -m 1 "VMRestartPending" && [ $SLEEP_CYCLES -ge $MAX_SLEEP ];
+	then
+		echo "VM restart threshold expired - unable to reboot VM after multiple vm restart attempts"
+		print_delete_instructions
+		exit 1
+	fi
+
+	# verify that 'succeeded' status message is displayed
 	SLEEP_CYCLES=0
 	MAX_SLEEP=20
 	until az vm encryption show --name "${ADE_VM}" --resource-group "${ADE_RG}" | grep -m 1 "succeeded" || [ $SLEEP_CYCLES -eq $MAX_SLEEP ]; do
 	   date
 	   # display current progress while waiting for the succeeded message
 	   az vm encryption show --name "${ADE_VM}" --resource-group "${ADE_RG}" | grep -m 1 "osDisk"
-	   sleep 30
+	   sleep 1m
 	   (( SLEEP_CYCLES++ ))
 	done
 
