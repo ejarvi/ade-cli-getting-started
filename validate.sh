@@ -167,7 +167,7 @@ az network nic create --resource-group ${ADE_RG} --name ${ADE_NIC} --vnet-name $
 
 # create virtual machine with at least 7GB RAM and two 1GB data disks
 # https://docs.microsoft.com/en-us/azure/virtual-machines/windows/sizes-general 
-az vm create --resource-group ${ADE_RG} --name ${ADE_VM} --size Standard_DS2_v2 --nics ${ADE_NIC} --image ${ADE_IMAGE} --generate-ssh-keys --data-disk-sizes-gb 1 1
+az vm create --resource-group ${ADE_RG} --name ${ADE_VM} --size Standard_D2S_v3 --nics ${ADE_NIC} --image ${ADE_IMAGE} --generate-ssh-keys --data-disk-sizes-gb 1 1
 #az vm open-port --port 22 --resource-group ${ADE_RG} --name ${ADE_VM}
 
 # mount and format the data disks if volume type was ALL or DATA
