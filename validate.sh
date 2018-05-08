@@ -139,8 +139,9 @@ if [ -z "${ADE_ADAPP_NAME}" ] && \
     if [ $SLEEP_CYCLES -eq $MAX_SLEEP ]
     then
         echo "test script failure - default timeout threshold exceeded for az role assignment"
-        print_delete_instructions
-        exit 1
+        #print_delete_instructions
+        auto_delete_resources
+		exit 1
     fi
 
     # create keyvault and set policy (premium sku offers HSM support which will be used later)
@@ -250,10 +251,10 @@ fi
 # enable encryption
 az vm encryption enable --name "${ADE_VM}" --resource-group "${ADE_RG}" --aad-client-id "${ADE_ADSP_APPID}" --aad-client-secret "${ADE_ADAPP_SECRET}" --disk-encryption-keyvault "${ADE_KV_ID}" --key-encryption-key "${ADE_KEK_URI}" --key-encryption-keyvault "${ADE_KEK_ID}" --volume-type "${ADE_VOLUME_TYPE}"
 
-# check status once every 10 minutes for a max of 20 hours
+# check status once every 10 minutes for a max of 6 hours
 SECONDS=0
 SLEEP_CYCLES=0
-MAX_SLEEP=120
+MAX_SLEEP=36
 
 if [ "${ADE_VOLUME_TYPE,,}" = "data" ]; then
 	# DATA volume type
@@ -268,7 +269,8 @@ if [ "${ADE_VOLUME_TYPE,,}" = "data" ]; then
 	if [ $SLEEP_CYCLES -eq $MAX_SLEEP ]
 	then
 		echo "Test timeout threshold expired - data volume encryption took more than 2 hours"
-		print_delete_instructions
+		#print_delete_instructions
+		auto_delete_resources
 		exit 1
 	fi
 else
@@ -284,8 +286,9 @@ else
 
 	if [ $SLEEP_CYCLES -eq $MAX_SLEEP ]
 	then
-		echo "Test timeout threshold expired - OS disk encryption took more than 20 hours"
-		print_delete_instructions
+		echo "Test timeout threshold expired - OS disk encryption took more than 6 hours"
+		#print_delete_instructions
+		auto_delete_resources
 		exit 1
 	fi
 
@@ -301,7 +304,8 @@ else
     if az vm encryption show --name "${ADE_VM}" --resource-group "${ADE_RG}" | grep -m 1 "VMRestartPending" && [ $SLEEP_CYCLES -ge $MAX_SLEEP ];
 	then
 		echo "VM restart threshold expired - unable to reboot VM after multiple vm restart attempts"
-		print_delete_instructions
+		#print_delete_instructions
+		auto_delete_resources
 		exit 1
 	fi
 
@@ -319,7 +323,8 @@ else
 	if [ $SLEEP_CYCLES -eq $MAX_SLEEP ]
 	then
 		echo "Test timeout threshold expired - OS disk encryption success message not observed after restart"
-		print_delete_instructions
+		#print_delete_instructions
+		auto_delete_resources
 		exit 1
 	fi
 fi
