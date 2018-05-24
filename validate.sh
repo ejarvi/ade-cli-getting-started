@@ -18,8 +18,8 @@ if ! [ -x "$(command -v jq)" ]; then
   exit 1
 fi
 
-if [[ ( -z "$1") || ( -z "$2") || ( -z "$3") ]]; then
-    echo "usage: validate.sh [image] [location] [volumetype] [[--singlepass]]
+if [[ ( -z "$1") || ( -z "$2") ]]; then
+    echo "usage: validate.sh [image] [location] [[volumetype]] [[--singlepass]] [[--encrypt-format-all]]
 
     [image] may take the form of an alias, URN, resource ID, or URI.
 
@@ -38,8 +38,11 @@ if [[ ( -z "$1") || ( -z "$2") || ( -z "$3") ]]; then
         To get a list of regions use:
             az account list-locations
 
-    [volumetype] is the volume type to encrypt (ie., DATA/OS/ALL)
+    [[volumetype]] is the volume type to encrypt (ie., DATA/OS/ALL)
         This value is optional, and will default to OS if not specified.
+
+    [[--encrypt-format-all]] is an optional switch that may be used to switch over to encrypt-format-all mode.
+	In this mode the disks are formatted and encrypted simultaneously. This speeds up DATA disk encryption as existing data doesn't need to be encrypted.
 
     [[--singlepass]] is an optional switch that may be used to switch over to the singlepass mode.
 	In this mode the AAD credentials (NAME, SECRET, and APPID) will be ignored.
@@ -77,6 +80,10 @@ for argument in $options
 
     esac
   done
+
+if [[ ( -z "$ADE_VOLUME_TYPE") ]]; then
+    ADE_VOLUME_TYPE=OS
+fi
 
 # initialize globals for use during the test
 ADE_SUBSCRIPTION_ID="`az account show | jq -r '.id'`"
