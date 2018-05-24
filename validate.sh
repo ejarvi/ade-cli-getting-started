@@ -59,15 +59,22 @@ if [[ ( -z "$1") || ( -z "$2") || ( -z "$3") ]]; then
     exit 1
 fi
 
-ADE_IMAGE="$1"
-ADE_LOCATION="$2"
-
 # parse options
 options=$@
+idx=0
 for argument in $options
   do
     case $argument in
-	--singlepass) ADE_SP_MODE=true;;
+        --singlepass) ADE_SP_MODE=true;;
+        --encrypt-format-all) ADE_EFA_MODE=true;;
+        *)
+            idx=$(($idx + 1))
+            case "$idx" in
+                "1") ADE_IMAGE=$argument;;
+                "2") ADE_LOCATION=$argument;;
+                "3") ADE_VOLUME_TYPE=$argument;;
+            esac
+
     esac
   done
 
@@ -276,12 +283,17 @@ cat "/tmp/${ADE_SCRIPT_PREFIX}.log"
 rm "/tmp/${ADE_SCRIPT_PREFIX}.log"
 fi
 
-# enable encryption
-if [[ "$ADE_SP_MODE" == true ]]; then
-    az vm encryption enable --name "${ADE_VM}" --resource-group "${ADE_RG}" --disk-encryption-keyvault "${ADE_KV_ID}" --key-encryption-key "${ADE_KEK_URI}" --key-encryption-keyvault "${ADE_KEK_ID}" --volume-type "${ADE_VOLUME_TYPE}"
-else
-    az vm encryption enable --name "${ADE_VM}" --resource-group "${ADE_RG}" --aad-client-id "${ADE_ADSP_APPID}" --aad-client-secret "${ADE_ADAPP_SECRET}" --disk-encryption-keyvault "${ADE_KV_ID}" --key-encryption-key "${ADE_KEK_URI}" --key-encryption-keyvault "${ADE_KEK_ID}" --volume-type "${ADE_VOLUME_TYPE}"
+ADE_EXTRA_PARAMS=""
+if [[ "$ADE_SP_MODE" != true ]]; then
+    ADE_EXTRA_PARAMS="$ADE_EXTRA_PARAMS --aad-client-id \"${ADE_ADSP_APPID}\" --aad-client-secret \"${ADE_ADAPP_SECRET}\""
 fi
+
+if [[ "$ADE_EFA_MODE" == true ]]; then
+    ADE_EXTRA_PARAMS="$ADE_EXTRA_PARAMS --encrypt-format-all"
+fi
+
+# enable encryption
+az vm encryption enable --name "${ADE_VM}" --resource-group "${ADE_RG}" --disk-encryption-keyvault "${ADE_KV_ID}" --key-encryption-key "${ADE_KEK_URI}" --key-encryption-keyvault "${ADE_KEK_ID}" --volume-type "${ADE_VOLUME_TYPE}" $ADE_EXTRA_PARAMS
 # check status once every 10 minutes for a max of 6 hours
 SECONDS=0
 SLEEP_CYCLES=0
