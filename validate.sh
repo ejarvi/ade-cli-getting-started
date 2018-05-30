@@ -292,7 +292,7 @@ fi
 
 ADE_EXTRA_PARAMS=""
 if [[ "$ADE_SP_MODE" != true ]]; then
-    ADE_EXTRA_PARAMS="$ADE_EXTRA_PARAMS --aad-client-id \"${ADE_ADSP_APPID}\" --aad-client-secret \"${ADE_ADAPP_SECRET}\""
+    ADE_EXTRA_PARAMS="$ADE_EXTRA_PARAMS --aad-client-id $ADE_ADSP_APPID --aad-client-secret $ADE_ADAPP_SECRET"
 fi
 
 if [[ "$ADE_EFA_MODE" == true ]]; then
@@ -378,7 +378,7 @@ else
 	   date
 	   # display current progress while waiting for the succeeded message
 	   az vm encryption show --name "${ADE_VM}" --resource-group "${ADE_RG}" | grep -m 1 "osDisk"
-	   sleep 1m
+	   sleep $SLEEP_TIME
 	   (( SLEEP_CYCLES++ ))
 	done
 
