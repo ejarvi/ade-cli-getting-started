@@ -374,7 +374,7 @@ else
 
 	SLEEP_CYCLES=0
 
-	until (az vm encryption show --name "${ADE_VM}" --resource-group "${ADE_RG}" | jq .disks[0].encryptionSettings[0].enabled | grep -m 1 "true" && az vm encryption show --name "${ADE_VM}" --resource-group "${ADE_RG}" | jq '.status, .substatus' | grep -m 1 "succeeded") || [ $SLEEP_CYCLES -eq $MAX_SLEEP ]; do
+	until (az vm encryption show --name "${ADE_VM}" --resource-group "${ADE_RG}" | jq .disks[0].encryptionSettings[0].enabled | grep -m 1 "true" && az vm encryption show --name "${ADE_VM}" --resource-group "${ADE_RG}" | jq '.status, .substatus' | grep -m 1 "Encryption succeeded") || [ $SLEEP_CYCLES -eq $MAX_SLEEP ]; do
 	   date
 	   # display current progress while waiting for the succeeded message
 	   az vm encryption show --name "${ADE_VM}" --resource-group "${ADE_RG}"
