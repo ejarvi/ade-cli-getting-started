@@ -53,7 +53,7 @@ Notes
 
 This script requires the Azure CLI and jq (for parsing JSON output of CLI commands) to be installed prior to execution.
 
-A powershell script with similar functionality is available at https://github/com/Azure/azure-powershell https://raw.githubusercontent.com/Azure/azure-powershell/dev/src/ResourceManager/Compute/Commands.Compute/Extension/AzureDiskEncryption/Scripts/AzureDiskEncryptionPreRequisiteSetup.ps1 
+A powershell script with similar functionality is available at https://raw.githubusercontent.com/Azure/azure-powershell/dev/src/ResourceManager/Compute/Commands.Compute/Extension/AzureDiskEncryption/Scripts/AzureDiskEncryptionPreRequisiteSetup.ps1 
 EOM
 
 exit
@@ -145,71 +145,73 @@ fi
 az group create --name ${ADE_RG_NAME} --location ${ADE_LOCATION}  > "$ADE_LOG_DIR/rg_create.json" 2>&1
 echo "- Resource group created: $ADE_RG_NAME"
 
-##create AD application certificate policy name if needed using sample domain
-#if [ -z "$ADE_ADAPP_CPS_NAME" ]; then 
-#	ADE_ADAPP_CPS_NAME="CN=www.contoso.com"
-#fi
 
-#create AD application certificate name that keyvault uses for identification
-#if [ -z "$ADE_ADAPP_CERT_NAME" ]; then
-#	ADE_CERT_SUFFIX="cert"
-#	ADE_ADAPP_CERT_NAME=$ADE_PREFIX$ADE_UID$ADE_CERT_SUFFIX
-#fi
+if [ "$ADE_AAD" = true ]; then
+    ##create AD application certificate policy name if needed using sample domain
+    #if [ -z "$ADE_ADAPP_CPS_NAME" ]; then 
+    #	ADE_ADAPP_CPS_NAME="CN=www.contoso.com"
+    #fi
 
-# todo - convert certificate creation commands to cli 2.0 syntax
-# wait for self signed certificate to be created  
-#azure keyvault certificate show --vault-name $ADE_KV_NAME --certificate-name $ADE_ADAPP_CERT_NAME --json > $ADE_LOG_DIR/$ADE_ADAPP_CERT_NAME$ADE_LOG_SUFFIX 2>&1
-#until jq -e '.x509Thumbprint' $ADE_LOG_DIR/$ADE_ADAPP_CERT_NAME$ADE_LOG_SUFFIX > /dev/null 2>&1
-#do
-#	azure keyvault certificate show --vault-name $ADE_KV_NAME --certificate-name $ADE_ADAPP_CERT_NAME --json > $ADE_LOG_DIR/$ADE_ADAPP_CERT_NAME$ADE_LOG_SUFFIX 2>&1
-        # wait for self signed certificate to be created 
-#        sleep 5
-#done
-#ADE_KV_CERT_THUMB=$(jq -r '.x509Thumbprint' $ADE_LOG_DIR/$ADE_ADAPP_CERT_NAME$ADE_LOG_SUFFIX )
-#echo "ADE_KV_CERT_THUMB $ADE_KV_CERT_THUMB"
+    #create AD application certificate name that keyvault uses for identification
+    #if [ -z "$ADE_ADAPP_CERT_NAME" ]; then
+    #	ADE_CERT_SUFFIX="cert"
+    #	ADE_ADAPP_CERT_NAME=$ADE_PREFIX$ADE_UID$ADE_CERT_SUFFIX
+    #fi
 
-# AD application name
-if [ -z "$ADE_ADAPP_NAME" ]; then 
-	ADE_ADAPP_SUFFIX="adapp"
-	ADE_ADAPP_NAME="$ADE_PREFIX$ADE_UID$ADE_ADAPP_SUFFIX"
-fi
+    # todo - convert certificate creation commands to cli 2.0 syntax
+    # wait for self signed certificate to be created  
+    #azure keyvault certificate show --vault-name $ADE_KV_NAME --certificate-name $ADE_ADAPP_CERT_NAME --json > $ADE_LOG_DIR/$ADE_ADAPP_CERT_NAME$ADE_LOG_SUFFIX 2>&1
+    #until jq -e '.x509Thumbprint' $ADE_LOG_DIR/$ADE_ADAPP_CERT_NAME$ADE_LOG_SUFFIX > /dev/null 2>&1
+    #do
+    #	azure keyvault certificate show --vault-name $ADE_KV_NAME --certificate-name $ADE_ADAPP_CERT_NAME --json > $ADE_LOG_DIR/$ADE_ADAPP_CERT_NAME$ADE_LOG_SUFFIX 2>&1
+            # wait for self signed certificate to be created 
+    #        sleep 5
+    #done
+    #ADE_KV_CERT_THUMB=$(jq -r '.x509Thumbprint' $ADE_LOG_DIR/$ADE_ADAPP_CERT_NAME$ADE_LOG_SUFFIX )
+    #echo "ADE_KV_CERT_THUMB $ADE_KV_CERT_THUMB"
 
-# AD application URI
-if [ -z "$ADE_ADAPP_URI" ]; then 
-    ADE_ADAPP_URI="https://localhost/${ADE_ADAPP_NAME}" 
-fi
+    # AD application name
+    if [ -z "$ADE_ADAPP_NAME" ]; then 
+        ADE_ADAPP_SUFFIX="adapp"
+        ADE_ADAPP_NAME="$ADE_PREFIX$ADE_UID$ADE_ADAPP_SUFFIX"
+    fi
 
-# AD application client secret 
-if [ -z "$ADE_ADAPP_SECRET" ]; then 
-	ADE_ADAPP_SECRET="$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 32 | head -n 1)"
-fi
+    # AD application URI
+    if [ -z "$ADE_ADAPP_URI" ]; then 
+        ADE_ADAPP_URI="https://localhost/${ADE_ADAPP_NAME}" 
+    fi
 
-# create ad application
-az ad app create --display-name $ADE_ADAPP_NAME --homepage $ADE_ADAPP_URI --identifier-uris $ADE_ADAPP_URI --password $ADE_ADAPP_SECRET > "$ADE_LOG_DIR/adapp.json" 2>&1
-ADE_ADSP_APPID="`az ad app list --display-name ${ADE_ADAPP_NAME} | jq -r '.[0] | .appId'`"
-echo "- AD application created: $ADE_ADAPP_NAME"
+    # AD application client secret 
+    if [ -z "$ADE_ADAPP_SECRET" ]; then 
+        ADE_ADAPP_SECRET="$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 32 | head -n 1)"
+    fi
 
-# create service principal for ad application
-az ad sp create --id "${ADE_ADSP_APPID}" > "$ADE_LOG_DIR/adapsp.json" 2>&1
-ADE_ADSP_OID="`az ad sp list --display-name ${ADE_ADAPP_NAME} | jq -r '.[0] | .objectId'`"
-echo "- AD application service principal created"
+    # create ad application
+    az ad app create --display-name $ADE_ADAPP_NAME --homepage $ADE_ADAPP_URI --identifier-uris $ADE_ADAPP_URI --password $ADE_ADAPP_SECRET > "$ADE_LOG_DIR/adapp.json" 2>&1
+    ADE_ADSP_APPID="`az ad app list --display-name ${ADE_ADAPP_NAME} | jq -r '.[0] | .appId'`"
+    echo "- AD application created: $ADE_ADAPP_NAME"
 
-# create role assignment for ad app
-echo "- AD application role assignment starting, please wait..."
-# (retry until AD SP OID is visible in directory or time threshold is exceeded)
-SLEEP_CYCLES=0
-MAX_SLEEP=8
-until az role assignment create --assignee $ADE_ADSP_OID --role Reader --scope "/subscriptions/${ADE_SUBSCRIPTION_ID}/" > "$ADE_LOG_DIR/role_create.json" 2>&1 || [ $SLEEP_CYCLES -eq $MAX_SLEEP ]; do
-sleep 15
-(( SLEEP_CYCLES++ ))
-done
-if [ $SLEEP_CYCLES -eq $MAX_SLEEP ]
-then
-    echo "- role assignment creation failed, timeout threshold exceeded"
-    exit 1
-fi
-echo "- AD application role assignment created"
+    # create service principal for ad application
+    az ad sp create --id "${ADE_ADSP_APPID}" > "$ADE_LOG_DIR/adapsp.json" 2>&1
+    ADE_ADSP_OID="`az ad sp list --display-name ${ADE_ADAPP_NAME} | jq -r '.[0] | .objectId'`"
+    echo "- AD application service principal created"
 
+    # create role assignment for ad app
+    echo "- AD application role assignment starting, please wait..."
+    # (retry until AD SP OID is visible in directory or time threshold is exceeded)
+    SLEEP_CYCLES=0
+    MAX_SLEEP=8
+    until az role assignment create --assignee $ADE_ADSP_OID --role Reader --scope "/subscriptions/${ADE_SUBSCRIPTION_ID}/" > "$ADE_LOG_DIR/role_create.json" 2>&1 || [ $SLEEP_CYCLES -eq $MAX_SLEEP ]; do
+    sleep 15
+    (( SLEEP_CYCLES++ ))
+    done
+    if [ $SLEEP_CYCLES -eq $MAX_SLEEP ]
+    then
+        echo "- role assignment creation failed, timeout threshold exceeded"
+        exit 1
+    fi
+    echo "- AD application role assignment created"
+fi 
 
 # KV name 
 if [ -z "$ADE_KV_NAME" ]; then 
@@ -254,9 +256,9 @@ echo "ADE_KEK_NAME=$ADE_KEK_NAME"
 echo "ADE_KEK_ID=$ADE_KV_ID"
 echo "ADE_KEK_URI=$ADE_KEK_URI"
 
-if [ -z "$ADE_AAD" ]; then 
-# if aad was requested, then also print the corresponding AAD information
-echo "ADE_ADAPP_NAME=$ADE_ADAPP_NAME"
-echo "ADE_ADAPP_SECRET=$ADE_ADAPP_SECRET"
-#echo "ADE_ADAPP_CERT_NAME=$ADE_ADAPP_CERT_NAME"
-
+if [ "$ADE_AAD" = true ]; then
+    # if aad was requested, then also print the corresponding AAD information
+    echo "ADE_ADAPP_NAME=$ADE_ADAPP_NAME"
+    echo "ADE_ADAPP_SECRET=$ADE_ADAPP_SECRET"
+    #echo "ADE_ADAPP_CERT_NAME=$ADE_ADAPP_CERT_NAME"
+fi
