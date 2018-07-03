@@ -45,6 +45,9 @@ Optional - Name of the AAD application that will be used to write secrets to Key
 --ade-adapp-secret <clientsecret>
 Optional - Client secret to use for a new AD application.  This is an optional parameter that can be used if a specific client secret is desired when creating a new ad application.  If not specified, a new random client secret will be created during ad application creation. 
 
+--ade-adapp-cert-name 
+Name that the self-signed certificate to be used for encryption is referred to in keyvault. If not specified, a new name will be created for the certificate. When the thumbprint of this certificate is provided to the enable encryption command, and the certificate already resides on the VM, encryption can be enabled by certificate thumbprint instead of having to pass a client secret. 
+
 --ade-log-dir <dir>
 Optional - this specifies the full path to a directory to be used to log intermediate JSON files.  If not specified, a log dir will be created using a unique name in the current directory.
 
@@ -58,12 +61,6 @@ EOM
 
 exit
 }
-
-# todo - add ad app client certificate to help text once included in script
-#--ade-adapp-cps-name
-#Certificate policy subject name to use for creating the self-signed certificate. If not specified, a default value of "CN=www.contoso.com" will be used. 
-#--ade-adapp-cert-name 
-#Name that the self-signed certificate to be used for encryption is referred to in keyvault. If not specified, a new name will be created for the certificate. When the thumbprint of this certificate is provided to the enable encryption command, and the certificate already resides on the VM, encryption can be enabled by certificate thumbprint instead of having to pass a client secret. 
 
 # parse options 
 options=$@
@@ -80,8 +77,7 @@ for argument in $options
 	--ade-kv-name) ADE_KV_NAME="${arguments[i]}";;
 	--ade-location) ADE_LOCATION="${arguments[i]}";;
 	--ade-adapp-name) ADE_ADAPP_NAME="${arguments[i]}";;
-#	--ade-adapp-cps-name) ADE_ADAPP_CPS_NAME="${arguments[i]}";;
-#	--ade-adapp-cert-name) ADE_ADAPP_CERT_NAME="${arguments[i]}";;
+	--ade-adapp-cert-name) ADE_ADAPP_CERT_NAME="${arguments[i]}";;
 	--ade-adapp-secret) ADE_ADAPP_SECRET="${arguments[i]}";;
 	--ade-subscription-id) ADE_SUBSCRIPTION_ID="${arguments[i]}";;
 	--ade-kek-name) ADE_KEK_NAME="${arguments[i]}";;
@@ -132,8 +128,8 @@ fi
 if [ -z "$ADE_LOCATION" ]; then
 	az account list-locations > $ADE_LOG_DIR/locations.json
 	ADE_LOCATION="$(jq -r '.[0] | .name' $ADE_LOG_DIR/locations.json)"
-    echo "- Resource location selected: $ADE_LOCATION"
 fi 	
+echo "- Location: $ADE_LOCATION"
 
 # initialize resource group name variable
 if [ -z "$ADE_RG_NAME" ]; then 
@@ -143,33 +139,36 @@ fi
 
 # create resource group if needed
 az group create --name ${ADE_RG_NAME} --location ${ADE_LOCATION}  > "$ADE_LOG_DIR/rg_create.json" 2>&1
-echo "- Resource group created: $ADE_RG_NAME"
+echo "- Resource group: $ADE_RG_NAME"
 
+# KV name 
+if [ -z "$ADE_KV_NAME" ]; then 
+	ADE_KV_SUFFIX="kv"
+	ADE_KV_NAME=$ADE_PREFIX$ADE_UID$ADE_KV_SUFFIX
+fi 
 
-if [ "$ADE_AAD" = true ]; then
-    ##create AD application certificate policy name if needed using sample domain
-    #if [ -z "$ADE_ADAPP_CPS_NAME" ]; then 
-    #	ADE_ADAPP_CPS_NAME="CN=www.contoso.com"
-    #fi
+# KV key encryption key name
+if [ -z "$ADE_KEK_NAME" ]; then 
+	ADE_KEK_SUFFIX="kek"
+	ADE_KEK_NAME=$ADE_PREFIX$ADE_UID$ADE_KEK_SUFFIX 
+fi
 
-    #create AD application certificate name that keyvault uses for identification
-    #if [ -z "$ADE_ADAPP_CERT_NAME" ]; then
-    #	ADE_CERT_SUFFIX="cert"
-    #	ADE_ADAPP_CERT_NAME=$ADE_PREFIX$ADE_UID$ADE_CERT_SUFFIX
-    #fi
+# create keyvault and set policy (premium sku offers HSM support)
+az keyvault create --name ${ADE_KV_NAME} --resource-group ${ADE_RG_NAME} --location ${ADE_LOCATION} --sku premium > "$ADE_LOG_DIR/kv_create.json" 2>&1
+echo "- Key vault: $ADE_KV_NAME"
+ADE_KV_URI="`az keyvault show --name ${ADE_KV_NAME} --resource-group ${ADE_RG_NAME} | jq -r '.properties.vaultUri'`"
+ADE_KV_ID="`az keyvault show --name ${ADE_KV_NAME} --resource-group ${ADE_RG_NAME} | jq -r '.id'`"
+az keyvault update --name "${ADE_KV_NAME}" --resource-group "${ADE_RG_NAME}" --enabled-for-deployment true --enabled-for-disk-encryption true > "$ADE_LOG_DIR/kv_policy_update.json" 2>&1
+echo "- Key vault policy enabled for deployment and disk encryption"
 
-    # todo - convert certificate creation commands to cli 2.0 syntax
-    # wait for self signed certificate to be created  
-    #azure keyvault certificate show --vault-name $ADE_KV_NAME --certificate-name $ADE_ADAPP_CERT_NAME --json > $ADE_LOG_DIR/$ADE_ADAPP_CERT_NAME$ADE_LOG_SUFFIX 2>&1
-    #until jq -e '.x509Thumbprint' $ADE_LOG_DIR/$ADE_ADAPP_CERT_NAME$ADE_LOG_SUFFIX > /dev/null 2>&1
-    #do
-    #	azure keyvault certificate show --vault-name $ADE_KV_NAME --certificate-name $ADE_ADAPP_CERT_NAME --json > $ADE_LOG_DIR/$ADE_ADAPP_CERT_NAME$ADE_LOG_SUFFIX 2>&1
-            # wait for self signed certificate to be created 
-    #        sleep 5
-    #done
-    #ADE_KV_CERT_THUMB=$(jq -r '.x509Thumbprint' $ADE_LOG_DIR/$ADE_ADAPP_CERT_NAME$ADE_LOG_SUFFIX )
-    #echo "ADE_KV_CERT_THUMB $ADE_KV_CERT_THUMB"
+# create key encryption key
+az keyvault key create --vault-name ${ADE_KV_NAME} --name ${ADE_KEK_NAME} --protection HSM  > "$ADE_LOG_DIR/kek_create.json" 2>&1
+ADE_KEK_ID="${ADE_KV_ID}"
+ADE_KEK_URI="`az keyvault key show --name ${ADE_KEK_NAME} --vault-name ${ADE_KV_NAME} | jq -r '.key.kid'`"
+echo "- Key encryption key: $ADE_KEK_NAME" 
 
+# generate corresponding AD application resources if requested
+if [ "$ADE_AAD" = true ]; then    
     # AD application name
     if [ -z "$ADE_ADAPP_NAME" ]; then 
         ADE_ADAPP_SUFFIX="adapp"
@@ -211,34 +210,47 @@ if [ "$ADE_AAD" = true ]; then
         exit 1
     fi
     echo "- AD application role assignment created"
+
+    az keyvault set-policy --name "${ADE_KV_NAME}" --resource-group "${ADE_RG_NAME}" --spn "${ADE_ADSP_APPID}" --key-permissions "wrapKey" --secret-permissions "set" > "$ADE_LOG_DIR/kv_policy_set.json" 2>&1
+    az keyvault update --name "${ADE_KV_NAME}" --resource-group "${ADE_RG_NAME}" --enabled-for-deployment true --enabled-for-disk-encryption true > "$ADE_LOG_DIR/kv_policy_update.json" 2>&1
+    echo "- AD application key vault policy set and updated"
+
+    echo "- AD application client certificate creation starting, please wait..."
+    # AD application client certificate
+    if [ -z "$ADE_ADAPP_CERT_NAME" ]; then
+    	ADE_CERT_SUFFIX="cert"
+    	ADE_ADAPP_CERT_NAME=$ADE_PREFIX$ADE_UID$ADE_CERT_SUFFIX
+    fi
+
+    # create certificate using default policy if needed
+    if ! az keyvault certificate show --vault-name $ADE_KV_NAME --name $ADE_ADAPP_CERT_NAME > "$ADE_LOG_DIR/cert_show_$ADE_ADAPP_CERT_NAME$ADE_LOG_SUFFIX" 2>&1; then
+        az keyvault certificate create --vault-name $ADE_KV_NAME -n $ADE_ADAPP_CERT_NAME \-p "$(az keyvault certificate get-default-policy)" >> "$ADE_LOG_DIR/cert_create_$ADE_ADAPP_CERT_NAME$ADE_LOG_SUFFIX" 2>&1
+    fi
+
+    # wait for self signed certificate to be created  
+    SLEEP_CYCLES=0
+    MAX_SLEEP=12
+    az keyvault certificate show --vault-name $ADE_KV_NAME --name $ADE_ADAPP_CERT_NAME > "$ADE_LOG_DIR/cert_show_$ADE_ADAPP_CERT_NAME$ADE_LOG_SUFFIX" 2>&1
+    until jq -e '.x509ThumbprintHex' "$ADE_LOG_DIR/cert_show_$ADE_ADAPP_CERT_NAME$ADE_LOG_SUFFIX" > /dev/null 2>&1
+    do
+        sleep 10
+        (( SLEEP_CYCLES++ ))
+        az keyvault certificate show --vault-name $ADE_KV_NAME --name $ADE_ADAPP_CERT_NAME > "$ADE_LOG_DIR/cert_show_$ADE_ADAPP_CERT_NAME$ADE_LOG_SUFFIX" 2>&1
+        if [ $SLEEP_CYCLES -eq $MAX_SLEEP ]
+        then
+            echo "- AD application self-signed certificate creation failed, timeout threshold exceeded"
+            exit 1
+        fi
+    done
+    ADE_KV_CERT_THUMB=$(jq -r '.x509ThumbprintHex' $ADE_LOG_DIR/cert_show_$ADE_ADAPP_CERT_NAME$ADE_LOG_SUFFIX )
+
+    # append the self-signed certificate to the service principal's list of valid credentials
+    az ad sp credential reset --name $ADE_ADAPP_URI --append --cert $ADE_ADAPP_CERT_NAME --keyvault $ADE_KV_NAME --json > $ADE_LOG_DIR/$ADE_KV_NAME$ADE_CERT_THUMB$ADE_LOG_SUFFIX 2>&1
+    echo "- AD application client certificate created"
+    # get the keyvault certificate secret id for later use in adding that certificate to the vm 
+    ADE_KV_CERT_SID=$(jq -r '.sid' $ADE_LOG_DIR/cert_show_$ADE_ADAPP_CERT_NAME$ADE_LOG_SUFFIX )
+
 fi 
-
-# KV name 
-if [ -z "$ADE_KV_NAME" ]; then 
-	ADE_KV_SUFFIX="kv"
-	ADE_KV_NAME=$ADE_PREFIX$ADE_UID$ADE_KV_SUFFIX
-fi 
-
-# KV key encryption key name
-if [ -z "$ADE_KEK_NAME" ]; then 
-	ADE_KEK_SUFFIX="kek"
-	ADE_KEK_NAME=$ADE_PREFIX$ADE_UID$ADE_KEK_SUFFIX 
-fi
-
-# create keyvault and set policy (premium sku offers HSM support)
-az keyvault create --name ${ADE_KV_NAME} --resource-group ${ADE_RG_NAME} --location ${ADE_LOCATION} --sku premium > "$ADE_LOG_DIR/kv_create.json" 2>&1
-echo "- Key vault created: $ADE_KV_NAME"
-ADE_KV_URI="`az keyvault show --name ${ADE_KV_NAME} --resource-group ${ADE_RG_NAME} | jq -r '.properties.vaultUri'`"
-ADE_KV_ID="`az keyvault show --name ${ADE_KV_NAME} --resource-group ${ADE_RG_NAME} | jq -r '.id'`"
-az keyvault set-policy --name "${ADE_KV_NAME}" --resource-group "${ADE_RG_NAME}" --spn "${ADE_ADSP_APPID}" --key-permissions "wrapKey" --secret-permissions "set" > "$ADE_LOG_DIR/kv_policy_set.json" 2>&1
-az keyvault update --name "${ADE_KV_NAME}" --resource-group "${ADE_RG_NAME}" --enabled-for-deployment true --enabled-for-disk-encryption true > "$ADE_LOG_DIR/kv_policy_update.json" 2>&1
-echo "- Key vault policy set and updated" 
-
-# create key encryption key
-az keyvault key create --vault-name ${ADE_KV_NAME} --name ${ADE_KEK_NAME} --protection HSM  > "$ADE_LOG_DIR/kek_create.json" 2>&1
-ADE_KEK_ID="${ADE_KV_ID}"
-ADE_KEK_URI="`az keyvault key show --name ${ADE_KEK_NAME} --vault-name ${ADE_KV_NAME} | jq -r '.key.kid'`"
-echo "- Key encryption key created: $ADE_KEK_NAME" 
 
 # save values to log folder for future reference ("source ade_env.sh") 
 compgen -v | grep ADE_ | while read var; do printf "%s=%q\n" "$var" "${!var}"; done > $ADE_LOG_DIR/ade_env.sh
@@ -260,5 +272,7 @@ if [ "$ADE_AAD" = true ]; then
     # if aad was requested, then also print the corresponding AAD information
     echo "ADE_ADAPP_NAME=$ADE_ADAPP_NAME"
     echo "ADE_ADAPP_SECRET=$ADE_ADAPP_SECRET"
-    #echo "ADE_ADAPP_CERT_NAME=$ADE_ADAPP_CERT_NAME"
+    echo "ADE_ADAPP_CERT_NAME=$ADE_ADAPP_CERT_NAME"
+    echo "ADE_KV_CERT_THUMB=$ADE_KV_CERT_THUMB"
+    echo "ADE_KV_CERT_SID=$ADE_KV_CERT_SID"
 fi
