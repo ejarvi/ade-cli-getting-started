@@ -46,14 +46,14 @@ ADE_VM_NAME=your-new-vm-name-here
 
 ### Enabling Encryption Without AAD
 
-By default this script will create necessary key vault resources and grant the platform the necessary access to the key vault for disk encryption scenarios.  This is all that is needed when enabling encryption without specifying AAD parameters.
+By default this script will create necessary key vault resources and grant the platform the necessary access to the key vault for disk encryption scenarios.  This is all that is needed when enabling encryption without specifying any Azure Active Directory (AAD) parameters.
 
 Key vault resources are created within a specific resource group container.  Deleting the resource group later will also delete the key vault resources.  
 
 
 ### Enabling Encryption With AAD 
 
-The prerequisite script, when used with the --aad option will also generate the necessary AAD resources to enable encryption with AAD. 
+The prerequisite script, when used with the --aad option will also generate the necessary Azure Active Directory (AAD) resources to enable encryption with AAD. 
 
 In this scenario, the credentials of an AAD application are used from within the context of the VM to authenticate to key vault endpoints.  These credentials may take the form of either a client secret (password string), or an X509 certificate.  The commands to enable disk encryption will accept either authentication option.  
  
@@ -70,11 +70,11 @@ To enable encryption using client secret, see the documentation for [az vm encry
 ### Client Certificates 
 As an alternative to using a client secret, this script demonstrates creating a self-signed certificate within keyvault that can be deployed to the VM.  The virtue of this technique is that the private key in the certificate is never handled by the administrator running the script and is not stored on the administrative console.  It is transferred from key vault to the VM, and is only referred to by its thumbprint within the administrative console. 
 
-To enable encryption with AAD credentials on remote VM's using certificates instead of client secrets, there are two main steps.
+To enable encryption with AAD using certificates instead of client secrets, there are two main steps.
 
-**First**, add the self-signed certificate that lives in keyvault to the VM that you are targeting.  To do this, refer to the documentation for [az vm secret](https://docs.microsoft.com/en-us/cli/azure/vm/secret?view=azure-cli-latest#az-vm-secret-add)
+**First**, prior to encrypting the VM, add the self-signed certificate that lives in keyvault to the VM that you are targeting.  To do this, refer to the documentation for [az vm secret](https://docs.microsoft.com/en-us/cli/azure/vm/secret?view=azure-cli-latest#az-vm-secret-add).
 
-**Second**, now that the certificate resides on the VM, disk encryption can be started in a way that only requires passing the thumbprint of that certificate (no secrets involved) as documented in the [az vm encryption enable](https://docs.microsoft.com/en-us/cli/azure/vm/encryption?view=azure-cli-latest) command.
+**Second**, now that the certificate resides on the VM, disk encryption can be started in a way that only requires passing the thumbprint of that certificate as documented for [az vm encryption enable](https://docs.microsoft.com/en-us/cli/azure/vm/encryption?view=azure-cli-latest).
 
 # More information
 * [Azure Disk Encryption for Windows and Linux IaaS VMs](https://azure.microsoft.com/en-us/documentation/articles/azure-security-disk-encryption/)
