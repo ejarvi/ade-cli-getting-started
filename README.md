@@ -72,7 +72,7 @@ As an alternative to using a client secret, this script demonstrates creating a 
 
 To enable encryption with AAD credentials on remote VM's using certificates instead of client secrets, there are two main steps.
 
-**First**, add the self-signed certificate that lives in keyvault to the VM that you are targeting.  To do this, refer to the documentation for [az vm secret] (https://docs.microsoft.com/en-us/cli/azure/vm/secret?view=azure-cli-latest#az-vm-secret-add)
+**First**, add the self-signed certificate that lives in keyvault to the VM that you are targeting.  To do this, refer to the documentation for [az vm secret](https://docs.microsoft.com/en-us/cli/azure/vm/secret?view=azure-cli-latest#az-vm-secret-add)
 
 **Second**, now that the certificate resides on the VM, disk encryption can be started in a way that only requires passing the thumbprint of that certificate (no secrets involved) as documented in the [az vm encryption enable](https://docs.microsoft.com/en-us/cli/azure/vm/encryption?view=azure-cli-latest) command.
 
