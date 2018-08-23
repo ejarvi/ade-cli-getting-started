@@ -323,6 +323,30 @@ if [ "${ADE_VOLUME_TYPE,,}" = "data" ]; then
 		auto_delete_resources
 		exit 1
 	fi
+
+	if [[ "$ADE_SP_MODE" == true ]]; then
+		# for single pass, check the metadata
+		if [[ `az vm encryption show --name "${ADE_VM}" --resource-group "${ADE_RG}" | jq .disks[1].encryptionSettings[0].enabled | grep -m 1 "false"` ]]
+		then
+			echo "Data disk did not get stamped even though extension reports success."
+			#print_delete_instructions
+			auto_delete_resources
+			exit 1
+		fi
+
+		# disable to check if metadata clearing works
+		az vm encryption disable --name "${ADE_VM}" --resource-group "${ADE_RG}" --volume-type "${ADE_VOLUME_TYPE}"
+
+		# check if it got clered. Error out if it didn't
+		if [[ `az vm encryption show --name "${ADE_VM}" --resource-group "${ADE_RG}" | jq .disks[1].encryptionSettings[0].enabled | grep -m 1 "true"` ]]
+		then
+			echo "Data disk did not get un-stamped even though extension reports success."
+			#print_delete_instructions
+			auto_delete_resources
+			exit 1
+		fi
+	fi
+
 else
 
     if [[ "$ADE_SP_MODE" != true ]]; then
