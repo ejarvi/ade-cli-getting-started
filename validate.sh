@@ -400,16 +400,12 @@ else
 
     until [[ $SLEEP_CYCLES -eq $MAX_SLEEP ]]; do
         # exit early if success criteria has been met
-        if [[ `az vm encryption show --name "${ADE_VM}" --resource-group "${ADE_RG}" | jq '.status, .substatus' | grep -m 1 'os\\\": \\\"Encrypted'` ]]; then
-            if [[ "$ADE_SP_MODE" == true ]]; then
-                # on single pass, also require disk encryption settings to be set
-                if [[ `az vm encryption show --name "${ADE_VM}" --resource-group "${ADE_RG}" | jq .disks[0].encryptionSettings[0].enabled | grep -m 1 "true"` ]]; then
-                    break
-                fi
-            else
-                break
-            fi
-        fi        
+        if [[ "$ADE_SP_MODE" == true ]] && [[ `az vm encryption show --name "${ADE_VM}" --resource-group "${ADE_RG}" | jq '.status, .substatus' | grep -m 1 'os\\\": \\\"Encrypted'` ]] && [[ `az vm encryption show --name "${ADE_VM}" --resource-group "${ADE_RG}" | jq .disks[0].encryptionSettings[0].enabled | grep -m 1 "true"` ]]; then
+            break
+        elif [[ "$ADE_SP_MODE" != true ]] && [[ `az vm encryption show --name "${ADE_VM}" --resource-group "${ADE_RG}" |  grep -m 1 'Encryption succeeded'`  ]]; then
+            break
+        fi
+
         # success criteria wasn't met, report status and wait
         date
         az vm encryption show --name "${ADE_VM}" --resource-group "${ADE_RG}"
