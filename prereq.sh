@@ -245,7 +245,7 @@ if [ "$ADE_AAD" = true ]; then
     ADE_KV_CERT_THUMB=$(jq -r '.x509ThumbprintHex' $ADE_LOG_DIR/cert_show_$ADE_ADAPP_CERT_NAME$ADE_LOG_SUFFIX )
 
     # append the self-signed certificate to the service principal's list of valid credentials
-    az ad sp credential reset --name $ADE_ADAPP_URI --append --cert $ADE_ADAPP_CERT_NAME --keyvault $ADE_KV_NAME --json > $ADE_LOG_DIR/$ADE_KV_NAME$ADE_CERT_THUMB$ADE_LOG_SUFFIX 2>&1
+    az ad sp credential reset --name $ADE_ADAPP_URI --append --cert $ADE_ADAPP_CERT_NAME --keyvault $ADE_KV_NAME > $ADE_LOG_DIR/$ADE_KV_NAME$ADE_CERT_THUMB$ADE_LOG_SUFFIX 2>&1
     echo "- AD application client certificate created"
     # get the keyvault certificate secret id for later use in adding that certificate to the vm 
     ADE_KV_CERT_SID=$(jq -r '.sid' $ADE_LOG_DIR/cert_show_$ADE_ADAPP_CERT_NAME$ADE_LOG_SUFFIX )
