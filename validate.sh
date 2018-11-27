@@ -46,6 +46,8 @@ if [[ ( -z "$1") || ( -z "$2") ]]; then
 
     [[--singlepass]] is an optional switch that may be used to switch over to the singlepass mode.
 	In this mode the AAD credentials (NAME, SECRET, and APPID) will be ignored.
+	
+	[[--rhui]] is an optional switch to update RHUI certificate using Microsoft-provided RPM on RHEL 7.1+
 
     To bypass creation of a new Active Directory application and KeyVault object
     for each run, it is possible to pre-create the following objects and specify
@@ -68,6 +70,7 @@ idx=0
 for argument in $options
   do
     case $argument in
+        --rhui) ADE_RHUI_MODE=true;;	
         --singlepass) ADE_SP_MODE=true;;
         --encrypt-format-all) ADE_EFA_MODE=true;;
         *)
@@ -288,6 +291,55 @@ done
 az storage blob download --account-name "${ADE_STG}" --account-key "${ADE_STG_KEY}" --container-name "${ADE_CNT}" --name output --file "/tmp/${ADE_SCRIPT_PREFIX}.log"
 cat "/tmp/${ADE_SCRIPT_PREFIX}.log"
 rm "/tmp/${ADE_SCRIPT_PREFIX}.log"
+fi
+
+if [[ "$ADE_RHUI_MODE" == true ]]; then
+# use custom script extension to update the RHUI certificate using the Microsoft-provided RPM
+# https://access.redhat.com/solutions/3167021
+ADE_SCRIPT_PREFIX="`cat /dev/urandom | tr -dc 'a-z' | fold -w 12 | head -n 1`"
+ADE_SCRIPT_NAME="${ADE_SCRIPT_PREFIX}.sh"
+ADE_SCRIPT_PATH="/tmp/${ADE_SCRIPT_NAME}"
+cat > "${ADE_SCRIPT_PATH}" << 'EOF'
+#!/usr/bin/env bash
+set -x
+if ! [ -x "$(command -v curl)" ]; then
+  echo 'Error: curl not installed, script cannot run' >&2
+  exit 1
+fi
+if [ -z "$1" ]; then
+  echo 'SAS URL missing, script cannot run' >&2
+  exit 1
+fi
+curl -o azureclient.rpm https://rhui-1.microsoft.com/pulp/repos/microsoft-azure-rhel7/rhui-azure-rhel7-2.2-74.noarch.rpm 2>&1 | tee -a /tmp/rhui.txt
+rpm -U azureclient.rpm 2>&1 | tee -a /tmp/rhui.txt
+yum clean all 2>&1 | tee -a /tmp/rhui.txt
+curl -X PUT $1 -T /tmp/rhui.txt -H "x-ms-blob-type: BlockBlob"
+EOF
+az storage blob upload --account-name "${ADE_STG}" --account-key "${ADE_STG_KEY}" --container-name "${ADE_CNT}" --file "${ADE_SCRIPT_PATH}" --name "${ADE_SCRIPT_NAME}"
+# cleanup local copy of script
+rm "${ADE_SCRIPT_PATH}"
+ADE_SAS_EXPIRY="`date -d tomorrow --iso-8601 --utc`T23:59Z"
+ADE_SCRIPT_URL=`az storage blob url --account-name "${ADE_STG}" --account-key "${ADE_STG_KEY}" --container-name "${ADE_CNT}" --name "${ADE_SCRIPT_NAME}"`
+ADE_SCRIPT_SAS_TOKEN=`az storage blob generate-sas --account-name "${ADE_STG}" --account-key "${ADE_STG_KEY}" --container-name "${ADE_CNT}" --name "${ADE_SCRIPT_NAME}" --permissions r --expiry ${ADE_SAS_EXPIRY}`
+ADE_SCRIPT_SAS_URL="${ADE_SCRIPT_URL//\"}?${ADE_SCRIPT_SAS_TOKEN//\"}"
+
+# create temporary storage blob SAS URL that will be used by the remote machine to post result output
+ADE_BLOB_URL=`az storage blob url --account-name "${ADE_STG}" --account-key "${ADE_STG_KEY}" --container-name "${ADE_CNT}" --name output`
+ADE_BLOB_SAS_TOKEN=`az storage blob generate-sas --account-name "${ADE_STG}" --account-key "${ADE_STG_KEY}" --container-name "${ADE_CNT}" --name output --permissions wracd --expiry ${ADE_SAS_EXPIRY}`
+ADE_BLOB_SAS_URL="${ADE_BLOB_URL//\"}?${ADE_BLOB_SAS_TOKEN//\"}"
+
+# create temporary json config files with the newly created SAS urls to send to custom script extension
+ADE_PUB_CONFIG="/tmp/${ADE_SCRIPT_PREFIX}_public_config.json"
+ADE_PRO_CONFIG="/tmp/${ADE_SCRIPT_PREFIX}_protected_config.json"
+echo '{"fileUris": ["'${ADE_SCRIPT_SAS_URL}'"]}' > "${ADE_PUB_CONFIG}"
+echo '{"commandToExecute": "./'${ADE_SCRIPT_NAME}' '"'"${ADE_BLOB_SAS_URL}"'"'"}' > "${ADE_PRO_CONFIG}"
+
+# use custom script extension to run script
+az vm extension set --resource-group "${ADE_RG}" --vm-name "${ADE_VM}" --name customScript --publisher Microsoft.Azure.Extensions --settings "${ADE_PUB_CONFIG}" --protected-settings "${ADE_PRO_CONFIG}"
+
+# cleanup temp json files
+rm "${ADE_PUB_CONFIG}"
+rm "${ADE_PRO_CONFIG}"
 fi
 
 ADE_EXTRA_PARAMS=""
