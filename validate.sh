@@ -340,6 +340,20 @@ az vm extension set --resource-group "${ADE_RG}" --vm-name "${ADE_VM}" --name cu
 # cleanup temp json files
 rm "${ADE_PUB_CONFIG}"
 rm "${ADE_PRO_CONFIG}"
+
+# check once a minute for 10 minutes or until the remote vm creates the output blob to signal that disks are formatted and mounted
+SLEEP_CYCLES=0
+MAX_SLEEP=10
+until az storage blob exists --account-name "${ADE_STG}" --account-key "${ADE_STG_KEY}" --container-name "${ADE_CNT}" --name output | grep -m 1 "true" || [ $SLEEP_CYCLES -eq $MAX_SLEEP ]; do
+   date
+   sleep 1m
+   (( SLEEP_CYCLES++ ))
+done
+
+# print the result provided by the remote vm to console, then cleanup the temporary file
+az storage blob download --account-name "${ADE_STG}" --account-key "${ADE_STG_KEY}" --container-name "${ADE_CNT}" --name output --file "/tmp/${ADE_SCRIPT_PREFIX}.log"
+cat "/tmp/${ADE_SCRIPT_PREFIX}.log"
+rm "/tmp/${ADE_SCRIPT_PREFIX}.log"
 fi
 
 ADE_EXTRA_PARAMS=""
