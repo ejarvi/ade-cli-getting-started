@@ -412,7 +412,6 @@ if [ "${ADE_VOLUME_TYPE,,}" = "data" ]; then
 			exit 1
 		fi
 	fi
-
 else
 
     if [[ "$ADE_SP_MODE" != true ]]; then
@@ -429,16 +428,15 @@ else
 
         if [ $SLEEP_CYCLES -eq $MAX_SLEEP ]
         then
-            echo "Test timeout threshold expired - OS disk encryption took more than 6 hours"
-            #print_delete_instructions
-            auto_delete_resources
-            exit 1
+            echo "Dual pass VMRestartPending message not observed after 6 hours, rebooting anyway"
+            az vm restart --name "${ADE_VM}" --resource-group "${ADE_RG}"
+            sleep 5m
         fi
-
-        # reboot vm
+	
+        # while VMRestartPending is showing, restart the vm 
         SLEEP_CYCLES=0
-        MAX_SLEEP=12
-        while az vm encryption show --name "${ADE_VM}" --resource-group "${ADE_RG}" | grep -m 1 "VMRestartPending" && [ $SLEEP_CYCLES -lt $MAX_SLEEP ]; do
+        MAX_SLEEP=5
+        while az vm encryption show --name "${ADE_VM}" --resource-group "${ADE_RG}" | grep -m 1 "VMRestartPending" || [ $SLEEP_CYCLES -gt $MAX_SLEEP ]; do
             az vm restart --name "${ADE_VM}" --resource-group "${ADE_RG}"
             sleep 5m
             (( SLEEP_CYCLES++ ))
@@ -446,14 +444,14 @@ else
 
         if az vm encryption show --name "${ADE_VM}" --resource-group "${ADE_RG}" | grep -m 1 "VMRestartPending" && [ $SLEEP_CYCLES -ge $MAX_SLEEP ];
         then
-            echo "VM restart threshold expired - unable to reboot VM after multiple vm restart attempts"
+            echo "VMRestartPending still showing after multiple vm restart attempts"
             #print_delete_instructions
             auto_delete_resources
             exit 1
         fi
     fi
 
-	# verify that 'succeeded' status message is displayed
+    # verify that single pass has per disk encryption settings and success message, or that dual pass has success message
     if [[ "$ADE_SP_MODE" == true ]]; then
         SLEEP_TIME=10m
         # MAX SLEEP ramains 36
@@ -462,8 +460,7 @@ else
         SLEEP_TIME=1m
     fi
 
-	SLEEP_CYCLES=0
-
+    SLEEP_CYCLES=0
     until [[ $SLEEP_CYCLES -eq $MAX_SLEEP ]]; do
         # exit early if success criteria has been met
         if [[ "$ADE_SP_MODE" == true ]] && [[ `az vm encryption show --name "${ADE_VM}" --resource-group "${ADE_RG}" | jq '.status, .substatus' | grep -m 1 'os\\\": \\\"Encrypted'` ]] && [[ `az vm encryption show --name "${ADE_VM}" --resource-group "${ADE_RG}" | jq .disks[0].encryptionSettings[0].enabled | grep -m 1 "true"` ]]; then
@@ -479,13 +476,13 @@ else
         (( SLEEP_CYCLES++ ))
     done
 
-	if [ $SLEEP_CYCLES -eq $MAX_SLEEP ]
-	then
-		echo "Test timeout threshold expired - OS disk encryption success message not observed after restart"
-		#print_delete_instructions
-		auto_delete_resources
-		exit 1
-	fi
+    if [ $SLEEP_CYCLES -eq $MAX_SLEEP ]
+    then
+        echo "Test timeout threshold expired - OS disk encryption success message not observed after restart"
+        #print_delete_instructions
+        auto_delete_resources
+        exit 1
+    fi
 fi
 
 printf 'Total encryption time: %dh:%dm:%ds\n' $(($SECONDS/3600)) $(($SECONDS%3600/60)) $(($SECONDS%60))
