@@ -435,8 +435,8 @@ else
 	
         # while VMRestartPending is showing, restart the vm 
         SLEEP_CYCLES=0
-        MAX_SLEEP=5
-        while az vm encryption show --name "${ADE_VM}" --resource-group "${ADE_RG}" | grep -m 1 "VMRestartPending" || [ $SLEEP_CYCLES -gt $MAX_SLEEP ]; do
+        MAX_SLEEP=12
+        while az vm encryption show --name "${ADE_VM}" --resource-group "${ADE_RG}" | grep -m 1 "VMRestartPending" && [ $SLEEP_CYCLES -lt $MAX_SLEEP ]; do
             az vm restart --name "${ADE_VM}" --resource-group "${ADE_RG}"
             sleep 5m
             (( SLEEP_CYCLES++ ))
