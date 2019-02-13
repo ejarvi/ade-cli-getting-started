@@ -107,7 +107,7 @@ fi
 echo "- Azure Disk Encryption Prerequisites Script [version $ADE_SCRIPT_VERSION]"
 
 # initialize script variables
-ADE_UID=$(cat /dev/urandom | tr -dc 'A-Za-z0-9' | fold -w 4 | head -n 1)
+ADE_UID=$(cat /dev/urandom | tr -dc 'a-z0-9' | fold -w 4 | head -n 1)
 ADE_LOG_SUFFIX=".json"
 if [ -z "$ADE_PREFIX" ]; then 
 	ADE_PREFIX="ade";
