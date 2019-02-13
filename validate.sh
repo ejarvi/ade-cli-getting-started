@@ -156,7 +156,7 @@ else
 	[ -z "${ADE_KEK_URI}"]; then
 
 	ADE_ADAPP_NAME="${ADE_PREFIX}adapp"
-	ADE_ADAPP_SECRET="$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 32 | head -n 1)"
+	ADE_ADAPP_SECRET="$(cat /dev/urandom | tr -dc 'a-zA-Z0-9_![]{}()&@#^+' | fold -w 32 | head -n 1)"
 	ADE_ADAPP_NAME="${ADE_PREFIX}adapp"
 	ADE_ADAPP_URI="https://localhost/${ADE_ADAPP_NAME}"
 	ADE_KV_NAME="${ADE_PREFIX}kv"
