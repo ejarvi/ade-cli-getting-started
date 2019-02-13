@@ -107,7 +107,7 @@ fi
 echo "- Azure Disk Encryption Prerequisites Script [version $ADE_SCRIPT_VERSION]"
 
 # initialize script variables
-ADE_UID=$(cat /dev/urandom | tr -dc 'a-z0-9' | fold -w 4 | head -n 1)
+ADE_UID=$(cat /dev/urandom | tr -dc 'A-Za-z0-9' | fold -w 4 | head -n 1)
 ADE_LOG_SUFFIX=".json"
 if [ -z "$ADE_PREFIX" ]; then 
 	ADE_PREFIX="ade";
@@ -182,7 +182,7 @@ if [ "$ADE_AAD" = true ]; then
 
     # AD application client secret 
     if [ -z "$ADE_ADAPP_SECRET" ]; then 
-        ADE_ADAPP_SECRET="$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 32 | head -n 1)"
+        ADE_ADAPP_SECRET="$(cat /dev/urandom | tr -dc 'a-zA-Z0-9_![]{}()&@#^+' | fold -w 32 | head -n 1)"
     fi
 
     # create ad application
