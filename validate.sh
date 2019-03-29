@@ -414,58 +414,14 @@ if [ "${ADE_VOLUME_TYPE,,}" = "data" ]; then
 	fi
 else
 
-    if [[ "$ADE_SP_MODE" != true ]]; then
-	# wait for presence of "VMRestartPending" in status message to signal that OS disk encryption is complete
-	# But only if not in single pass mode.
-        until az vm encryption show --name "${ADE_VM}" --resource-group "${ADE_RG}" | grep -m 1 "VMRestartPending" || [ $SLEEP_CYCLES -eq $MAX_SLEEP ]; do
-           date
-           # display current progress while waiting for the VMRestartPending message
-           az vm encryption show --name "${ADE_VM}" --resource-group "${ADE_RG}" | grep -m 1 "progressMessage"
-           sleep 10m
-           (( SLEEP_CYCLES++ ))
-        done
-        printf 'Pre-reboot encryption time: %dh:%dm:%ds\n' $(($SECONDS/3600)) $(($SECONDS%3600/60)) $(($SECONDS%60))
-
-        if [ $SLEEP_CYCLES -eq $MAX_SLEEP ]
-        then
-            echo "Dual pass VMRestartPending message not observed after 6 hours, rebooting anyway"
-            az vm restart --name "${ADE_VM}" --resource-group "${ADE_RG}"
-            sleep 5m
-        fi
-	
-        # while VMRestartPending is showing, restart the vm 
-        SLEEP_CYCLES=0
-        MAX_SLEEP=12
-        while az vm encryption show --name "${ADE_VM}" --resource-group "${ADE_RG}" | grep -m 1 "VMRestartPending" && [ $SLEEP_CYCLES -lt $MAX_SLEEP ]; do
-            az vm restart --name "${ADE_VM}" --resource-group "${ADE_RG}"
-            sleep 5m
-            (( SLEEP_CYCLES++ ))
-        done
-
-        if az vm encryption show --name "${ADE_VM}" --resource-group "${ADE_RG}" | grep -m 1 "VMRestartPending" && [ $SLEEP_CYCLES -ge $MAX_SLEEP ];
-        then
-            echo "VMRestartPending still showing after multiple vm restart attempts"
-            #print_delete_instructions
-            auto_delete_resources
-            exit 1
-        fi
-    fi
-
-    # verify that single pass has per disk encryption settings and success message, or that dual pass has success message
-    if [[ "$ADE_SP_MODE" == true ]]; then
-        SLEEP_TIME=10m
-        # MAX SLEEP ramains 36
-    else
-        MAX_SLEEP=20
-        SLEEP_TIME=1m
-    fi
+    SLEEP_TIME=10m
 
     SLEEP_CYCLES=0
     until [[ $SLEEP_CYCLES -eq $MAX_SLEEP ]]; do
         # exit early if success criteria has been met
         if [[ "$ADE_SP_MODE" == true ]] && [[ `az vm encryption show --name "${ADE_VM}" --resource-group "${ADE_RG}" | jq '.status, .substatus' | grep -m 1 'os\\\": \\\"Encrypted'` ]] && [[ `az vm encryption show --name "${ADE_VM}" --resource-group "${ADE_RG}" | jq .disks[0].encryptionSettings[0].enabled | grep -m 1 "true"` ]]; then
             break
-        elif [[ "$ADE_SP_MODE" != true ]] && [[ `az vm encryption show --name "${ADE_VM}" --resource-group "${ADE_RG}" |  grep -m 1 'Encryption succeeded'`  ]]; then
+        elif [[ "$ADE_SP_MODE" != true ]] && [[ `az vm encryption show --name "${ADE_VM}" --resource-group "${ADE_RG}" |  grep -m 1 'Encryption succeeded for all volumes\|Encryption succeeded for OS volume'` ]]; then
             break
         fi
 
